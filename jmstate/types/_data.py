@@ -42,10 +42,10 @@ class ModelDesign(BaseEstimator):
 
     Individual Parameters:
         - `indiv_params_fn` is a function that computes individual parameters. Given
-          `fixed_params` (population-level parameters), `x` (covariates matrix of shape
-          :math:`(n, p)`), and `b` (random effects, either 2D or 3D), it yields tensors
-          of corresponding dimensions, either 2D or 3D depending on the model design.
-          This function defines the mapping from population-level parameters and
+          `fixed_effects` (fixed population-level parameters), `x` (covariates matrix of
+          shape :math:`(n, p)`), and `b` (random effects, either 2D or 3D), it yields
+          tensors of corresponding dimensions, either 2D or 3D depending on the model
+          design. This function defines the mapping from population-level parameters and
           covariates to individual-specific parameters.
 
     Regression:
@@ -64,7 +64,7 @@ class ModelDesign(BaseEstimator):
 
     Attributes:
         indiv_params_fn (IndividualParametersFn): Function that computes individual
-            parameters. Given `fixed_params` (population-level parameters), `x`
+            parameters. Given `fixed_effects` (fixed population-level parameters), `x`
             (covariates matrix of shape :math:`(n, p)`), and `b` (random effects, either
             2D or 3D), it yields tensors of corresponding dimensions, either 2D or 3D
             depending on the model design. This function defines the mapping from
@@ -87,9 +87,9 @@ class ModelDesign(BaseEstimator):
         ...     scale, offset, slope = indiv_params.chunk(3, dim=-1)
         ...     # Fully broadcasted
         ...     return (scale * torch.sigmoid((t - offset) / slope)).unsqueeze(-1)
-        >>> pop_plus_b = lambda fixed_params, x, b: fixed_params + b
+        >>> fixed_plus_b = lambda fixed, x, b: fixed + b
         >>> link_fns = {("alive", "dead"): sigmoid}
-        >>> design = ModelDesign(pop_plus_b, sigmoid, link_fns)
+        >>> design = ModelDesign(fixed_plus_b, sigmoid, link_fns)
     """
 
     indiv_params_fn: IndividualParametersFn

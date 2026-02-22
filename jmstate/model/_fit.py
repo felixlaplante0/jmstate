@@ -79,7 +79,7 @@ class FitMixin(PriorMixin, LongitudinalMixin, HazardMixin, MCMCMixin, nn.Module)
         Returns:
            torch.Tensor: The log pdfs.
         """
-        indiv_params = self.design.indiv_params_fn(self.params.fixed_params, data.x, b)
+        indiv_params = self.design.indiv_params_fn(self.params.fixed_effects, data.x, b)
         return (
             self._longitudinal_logliks(data, indiv_params)
             + self._hazard_logliks(data, indiv_params)
@@ -90,8 +90,8 @@ class FitMixin(PriorMixin, LongitudinalMixin, HazardMixin, MCMCMixin, nn.Module)
         """Checks if the optimizer has converged.
 
         This is based on a linear regression of the parameters with the current
-        number of iterations. If :math:`R^2` is below a threshold, the optimizer is
-        considered to have converged.
+        number of iterations. If the mean of :math:`R^2` is below a threshold,
+        the optimizer is considered to have converged.
 
         Returns:
             bool: True if the optimizer has converged, False otherwise.
@@ -110,7 +110,7 @@ class FitMixin(PriorMixin, LongitudinalMixin, HazardMixin, MCMCMixin, nn.Module)
             return False
 
         Y = torch.stack(self.params_history_[-self.window_size :])
-        return r2(Y).max().item() < self.tol
+        return r2(Y).mean().item() < self.tol
 
     def _fit(self, data: ModelDataUnchecked, sampler: MetropolisWithinGibbsSampler):
         """Fits the model using the optimizer and the sampler.
@@ -152,7 +152,9 @@ class FitMixin(PriorMixin, LongitudinalMixin, HazardMixin, MCMCMixin, nn.Module)
 
         if i == self.max_iter_fit - 1:  # type: ignore
             warn(
-                "Model may not have converged in the specified number of iterations.",
+                "Model may not have converged in the specified number of iterations. "
+                "Try to increase `max_iter_fit`, `tol`, or `window_size`. Also try "
+                "to increase `n_subsample` or `n_warmup` for better MCMC mixing.",
                 stacklevel=2,
             )
 

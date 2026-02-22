@@ -165,15 +165,15 @@ class PrecisionParameters(BaseEstimator, nn.Module):
 class ModelParameters(BaseEstimator, nn.Module):
     r"""`nn.Module` encapsulating all model parameters for a multistate joint model.
 
-    This module contains population-level parameters, covariate effects, link
+    This module contains fixed population-level parameters, covariate effects, link
     coefficients, random effects, noise precision, and log base hazard functions.
     Parameters can be shared by assigning the same `nn.Parameter` object to multiple
     fields. Reusing tensors directly is not supported and requires wrapping in
     `nn.Parameter` for correct computations, as `nn.ParameterDict` would break the
     object ids otherwise.
 
-    Population-level parameters:
-        - `fixed_params` are population-level parameters.
+    Fixed population-level parameters:
+        - `fixed_effects` are fixed population-level parameters.
 
     Random effects and noise precision matrices:
         - `random_prec` and `noise_prec` are `PrecisionParameters` objects
@@ -191,7 +191,7 @@ class ModelParameters(BaseEstimator, nn.Module):
           covariates, respectively.
 
     Attributes:
-        fixed_params (torch.Tensor): Population-level parameters.
+        fixed_effects (torch.Tensor): Fixed population-level parameters.
         random_prec (PrecisionParameters): Precision parameters for random effects.
         noise_prec (PrecisionParameters): Precision parameters for residual noise.
         base_hazards (nn.ModuleDict): Log base hazard functions per transition.
@@ -199,13 +199,13 @@ class ModelParameters(BaseEstimator, nn.Module):
         x_coefs (nn.ParameterDict): Covariate parameters for each transition.
 
     Examples:
-        >>> fixed_params = torch.zeros(3)
+        >>> fixed_effects = torch.zeros(3)
         >>> random_prec = PrecisionParameters.from_covariance(torch.eye(3), "diag")
         >>> noise_prec = PrecisionParameters.from_covariance(torch.eye(2), "spherical")
         >>> link_coefs = {(0, 1): torch.zeros(3), (1, 0): torch.zeros(3)}
         >>> x_coefs = {(0, 1): torch.zeros(2), (1, 0): torch.zeros(2)}
         >>> params = ModelParameters(
-        ...     fixed_params,
+        ...     fixed_effects,
         ...     random_prec,
         ...     noise_prec,
         ...     link_coefs,
@@ -215,7 +215,7 @@ class ModelParameters(BaseEstimator, nn.Module):
         >>> shared_coef = nn.Parameter(torch.zeros(3))  # Mandatory nn.Parameter
         >>> shared_link_coefs = {(0, 1): shared_coef, (1, 0): shared_coef}
         >>> shared_params = ModelParameters(
-        ...     fixed_params,
+        ...     fixed_effects,
         ...     random_prec,
         ...     noise_prec,
         ...     shared_link_coefs,
@@ -223,7 +223,7 @@ class ModelParameters(BaseEstimator, nn.Module):
         ... )
     """
 
-    fixed_params: torch.Tensor
+    fixed_effects: torch.Tensor
     random_prec: PrecisionParameters
     noise_prec: PrecisionParameters
     base_hazards: nn.ModuleDict
@@ -232,7 +232,7 @@ class ModelParameters(BaseEstimator, nn.Module):
 
     @validate_params(
         {
-            "fixed_params": [torch.Tensor],
+            "fixed_effects": [torch.Tensor],
             "random_prec": [PrecisionParameters],
             "noise_prec": [PrecisionParameters],
             "base_hazards": [dict],
@@ -243,7 +243,7 @@ class ModelParameters(BaseEstimator, nn.Module):
     )
     def __init__(
         self,
-        fixed_params: torch.Tensor,
+        fixed_effects: torch.Tensor,
         random_prec: PrecisionParameters,
         noise_prec: PrecisionParameters,
         base_hazards: dict[tuple[Any, Any], LogBaseHazardFn],
@@ -253,7 +253,7 @@ class ModelParameters(BaseEstimator, nn.Module):
         """Initializes the `ModelParams` object.
 
         Args:
-            fixed_params (torch.Tensor): The population-level parameters.
+            fixed_effects (torch.Tensor): Fixed population-level parameters.
             random_prec (PrecisionParameters): Precision parameters for random effects.
             noise_prec (PrecisionParameters): Precision parameters for residual noise.
             base_hazards (dict[tuple[Any, Any], LogBaseHazardFn]): Log base hazard
@@ -268,7 +268,7 @@ class ModelParameters(BaseEstimator, nn.Module):
         """
         super().__init__()  # type: ignore
 
-        self.fixed_params = nn.Parameter(fixed_params)
+        self.fixed_effects = nn.Parameter(fixed_effects)
         self.random_prec = random_prec
         self.noise_prec = noise_prec
         self.base_hazards = nn.ModuleDict({str(k): v for k, v in base_hazards.items()})

@@ -140,7 +140,7 @@ class PredictMixin(HazardMixin, MCMCMixin):
                 vector_to_parameters(sampled_params[i], self.params.parameters())  # type: ignore
 
             indiv_params = self.design.indiv_params_fn(
-                self.params.fixed_params, data.x, sampler.b
+                self.params.fixed_effects, data.x, sampler.b
             )
             y = self.design.regression_fn(u, indiv_params)
             y_pred.extend(y[i] for i in range(y.size(0)))
@@ -244,7 +244,7 @@ class PredictMixin(HazardMixin, MCMCMixin):
                 vector_to_parameters(sampled_params[i], self.params.parameters())  # type: ignore
 
             indiv_params = self.design.indiv_params_fn(
-                self.params.fixed_params, data.x, sampler.b
+                self.params.fixed_effects, data.x, sampler.b
             )
             sample_data = SampleData(data.x, data.trajectories, indiv_params, data.c)
             surv_logps = self.compute_surv_logps(sample_data, u)
@@ -341,7 +341,7 @@ class PredictMixin(HazardMixin, MCMCMixin):
 
             # Sample trajectories, not possible to vectorize fully
             indiv_params = self.design.indiv_params_fn(
-                self.params.fixed_params, data.x, sampler.b
+                self.params.fixed_effects, data.x, sampler.b
             )
             for j in range(indiv_params.size(0)):
                 sample_data = SampleDataUnchecked(
