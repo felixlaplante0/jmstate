@@ -46,7 +46,7 @@ class MCMCMixin:
         self.adapt_rate = adapt_rate
         self.target_accept_rate = target_accept_rate
 
-    def _init_sampler(self, data: ModelData):
+    def _init_sampler(self, data: ModelDataUnchecked):
         """Initializes the MCMC sampler.
 
         Args:
