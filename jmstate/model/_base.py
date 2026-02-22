@@ -24,8 +24,10 @@ class MultiStateJointModel(BaseEstimator, FitMixin, PredictMixin):
     `ModelDesign` is fixed at initialization, while `ModelParameters` are updated
     in place during fitting.
 
-    Model fitting is performed using a stochastic gradient ascent algorithm,
-    and parameter sampling is handled by a Metropolis-Hastings MCMC procedure.
+    Model fitting is performed using a stochastic gradient ascent algorithm, and
+    parameter sampling is handled by a Metropolis-Within-Gibbs MCMC procedure. The
+    default settings are based on commonly accepted values, and the step sizes are
+    adapted component-wise dynamically based on the acceptance rate.
 
     Dynamic prediction is supported via the prediction methods in `PredictMixin`,
     which allow both single and double Monte Carlo integration.
@@ -41,7 +43,8 @@ class MultiStateJointModel(BaseEstimator, FitMixin, PredictMixin):
 
     MCMC settings:
         - `n_chains`: Number of parallel MCMC chains.
-        - `init_step_size`: Initial kernel standard deviation in Metropolis-Hastings.
+        - `init_step_size`: Initial kernel standard deviation in
+           Metropolis-Within-Gibbs.
         - `adapt_rate`: Adaptation rate for the step size.
         - `target_accept_rate`: Target mean acceptance probability.
         - `n_warmup`: Number of warmup iterations per chain.
@@ -75,7 +78,7 @@ class MultiStateJointModel(BaseEstimator, FitMixin, PredictMixin):
         n_bisect (int): Number of bisection steps for transition time sampling.
         n_chains (int): Number of parallel MCMC chains.
         init_step_size (float): Initial kernel standard deviation in
-            Metropolis-Hastings.
+            Metropolis-Within-Gibbs.
         adapt_rate (float): Adaptation rate for the MCMC step size.
         target_accept_rate (float): Target acceptance probability.
         n_warmup (int): Number of warmup iterations per MCMC chain.
@@ -156,7 +159,7 @@ class MultiStateJointModel(BaseEstimator, FitMixin, PredictMixin):
         n_chains: int = 5,
         init_step_size: float = 0.1,
         adapt_rate: float = 0.1,
-        target_accept_rate: float = 0.234,
+        target_accept_rate: float = 0.44,
         n_warmup: int = 100,
         n_subsample: int = 10,
         max_iter_fit: int = 1000,
@@ -188,7 +191,7 @@ class MultiStateJointModel(BaseEstimator, FitMixin, PredictMixin):
             adapt_rate (float, optional): Adaptation rate for the MCMC step size.
                 Defaults to 0.1.
             target_accept_rate (float, optional): Target mean acceptance probability for
-                MCMC. Defaults to 0.234.
+                Metropolis-Within-Gibbs. Defaults to 0.44.
             n_warmup (int, optional): Number of warmup iterations per MCMC chain.
                 Defaults to 100.
             n_subsample (int, optional): Number of subsamples between MCMC updates.

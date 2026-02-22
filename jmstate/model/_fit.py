@@ -15,7 +15,7 @@ from ..types._parameters import ModelParameters
 from ._hazard import HazardMixin
 from ._longitudinal import LongitudinalMixin
 from ._prior import PriorMixin
-from ._sampler import MCMCMixin, MetropolisHastingsSampler
+from ._sampler import MCMCMixin, MetropolisWithinGibbsSampler
 
 
 class FitMixin(PriorMixin, LongitudinalMixin, HazardMixin, MCMCMixin, nn.Module):
@@ -112,12 +112,12 @@ class FitMixin(PriorMixin, LongitudinalMixin, HazardMixin, MCMCMixin, nn.Module)
         Y = torch.stack(self.params_history_[-self.window_size :])
         return r2(Y).max().item() < self.tol
 
-    def _fit(self, data: ModelDataUnchecked, sampler: MetropolisHastingsSampler):
+    def _fit(self, data: ModelDataUnchecked, sampler: MetropolisWithinGibbsSampler):
         """Fits the model using the optimizer and the sampler.
 
         Args:
             data (ModelData): The data.
-            sampler (MetropolisHastingsSampler): The sampler.
+            sampler (MetropolisWithinGibbsSampler): The sampler.
 
         Raises:
             ValueError: If the optimizer is not initialized.
@@ -157,13 +157,13 @@ class FitMixin(PriorMixin, LongitudinalMixin, HazardMixin, MCMCMixin, nn.Module)
             )
 
     def _compute_fim_and_criteria(
-        self, data: ModelDataUnchecked, sampler: MetropolisHastingsSampler
+        self, data: ModelDataUnchecked, sampler: MetropolisWithinGibbsSampler
     ):
         """Computes the Fisher Information Matrix and model selection criteria.
 
         Args:
             data (ModelData): The data.
-            sampler (MetropolisHastingsSampler): The sampler.
+            sampler (MetropolisWithinGibbsSampler): The sampler.
         """
         if self.n_samples_summary <= 0:
             return

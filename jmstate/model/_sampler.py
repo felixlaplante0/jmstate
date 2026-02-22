@@ -46,16 +46,16 @@ class MCMCMixin:
         self.adapt_rate = adapt_rate
         self.target_accept_rate = target_accept_rate
 
-    def _init_sampler(self, data: ModelDataUnchecked):
+    def _init_sampler(self, data: ModelData):
         """Initializes the MCMC sampler.
 
         Args:
             data (ModelDataUnchecked): The model data.
 
         Returns:
-            MetropolisHastingsSampler: The initialized MCMC sampler.
+            MetropolisWithinGibbsSampler: The initialized MCMC sampler.
         """
-        return MetropolisHastingsSampler(
+        return MetropolisWithinGibbsSampler(
             lambda b: self._logpdfs_fn(data, b),
             torch.zeros(self.n_chains, len(data), self.params.random_prec.dim),
             self.n_chains,
@@ -65,35 +65,37 @@ class MCMCMixin:
         )
 
 
-class MetropolisHastingsSampler:
-    """A robust Metropolis-Hastings sampler with adaptive step size."""
+class MetropolisWithinGibbsSampler:
+    """A robust Metropolis-within-Gibbs sampler with adaptive step size."""
 
     logpdfs_fn: Callable[[torch.Tensor], torch.Tensor]
     n_chains: int
-    adapt_rate: int | float
-    target_accept_rate: int | float
+    adapt_rate: float
+    target_accept_rate: float
     b: torch.Tensor
     logpdfs: torch.Tensor
+    j: int
     step_sizes: torch.Tensor
+    _noise: torch.Tensor
 
     def __init__(
         self,
         logpdfs_fn: Callable[[torch.Tensor], torch.Tensor],
         init_b: torch.Tensor,
         n_chains: int,
-        init_step_size: int | float,
-        adapt_rate: int | float,
-        target_accept_rate: int | float,
+        init_step_size: float,
+        adapt_rate: float,
+        target_accept_rate: float,
     ):
-        """Initializes the Metropolis-Hastings sampler kernel.
+        """Initializes the Metropolis-within-Gibbs sampler kernel.
 
         Args:
             logpdfs_fn (Callable[[torch.Tensor], torch.Tensor]): The log pdfs function.
             init_b (torch.Tensor): Starting b for the chain.
             n_chains (int): The number of parallel chains to spawn.
-            init_step_size (int | float): Kernel step in Metropolis-Hastings.
-            adapt_rate (int | float): Adaptation rate for the step_size.
-            target_accept_rate (int | float): Mean acceptance target.
+            init_step_size (float): Kernel step in Metropolis-within-Gibbs.
+            adapt_rate (float): Adaptation rate for the step_size.
+            target_accept_rate (float): Mean acceptance target.
         """
         self.logpdfs_fn = cast(  # type: ignore
             Callable[[torch.Tensor], torch.Tensor],
@@ -107,8 +109,10 @@ class MetropolisHastingsSampler:
         self.b = init_b
         self.reset()
 
-        self.step_sizes = torch.full((1, self.b.size(-2)), init_step_size)
-        self._noise = torch.empty_like(self.b)
+        # Initialize step sizes and noise
+        self.j = 0
+        self.step_sizes = torch.full((1, *self.b.shape[1:]), init_step_size)
+        self._noise = torch.empty(*self.b.shape[:-1])
 
     def reset(self) -> Self:
         """Resets the log pdfs and individual parameters.
@@ -129,7 +133,8 @@ class MetropolisHastingsSampler:
         self._noise.uniform_(-1, 1)
 
         # Get the proposal
-        proposed_state = self.b + self._noise * self.step_sizes.unsqueeze(-1)
+        proposed_state = self.b.clone()
+        proposed_state[..., self.j] += self._noise * self.step_sizes[..., self.j]
         proposed_logpdfs = self.logpdfs_fn(proposed_state)
         logpdf_diff = proposed_logpdfs - self.logpdfs
 
@@ -143,7 +148,8 @@ class MetropolisHastingsSampler:
         # Update step sizes
         mean_accept_mask = accept_mask.to(torch.get_default_dtype()).mean(dim=0)
         adaptation = (mean_accept_mask - self.target_accept_rate) * self.adapt_rate
-        self.step_sizes *= torch.exp(adaptation)
+        self.step_sizes[..., self.j] *= torch.exp(adaptation)
+        self.j = (self.j + 1) % self.b.size(-1)
 
         return self
 
