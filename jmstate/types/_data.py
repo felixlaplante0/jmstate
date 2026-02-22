@@ -254,7 +254,7 @@ class ModelDataUnchecked(ModelData):
             )
 
         self.valid_mask = ~self.y.isnan()
-        self.n_valid = self.valid_mask.sum(dim=-2).to(torch.get_default_dtype())
+        self.n_valid = self.valid_mask.sum(dim=-2).to(self.y.dtype)
         self.valid_t = self.t.nan_to_num(self.t.nanmean().item())
         self.valid_y = self.y.nan_to_num()
         self.buckets = build_all_buckets(
