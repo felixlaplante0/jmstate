@@ -217,7 +217,7 @@ class PredictMixin(HazardMixin, MCMCMixin):
                 `(n_samples, n, m)`, stacked along the first dimension.
         """
         assert_all_finite(u, input_name="u")
-        check_consistent_length(u, data)
+        u = torch.broadcast_to(u, (len(data), -1))
 
         # Load and complete data
         data = ModelDataUnchecked(

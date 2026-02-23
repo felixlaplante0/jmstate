@@ -213,11 +213,11 @@ class ModelData(BaseEstimator):
         assert_all_finite(self.c, input_name="c")
 
         check_consistent_length(self.x, self.y, self.c, self.trajectories)
-        check_consistent_length(self.t.transpose(0, -1), self.y.transpose(0, -2))
+        torch.broadcast_to(self.t, self.y.shape[:-1])
 
         # Check NaNs between t and y
         if ((~self.y.isnan()).any(dim=-1) & self.t.isnan()).any():
-            raise ValueError("NaN time values on non NaN y values")
+            raise ValueError("NaN time values on non NaN y values are not allowed")
 
 
 @dataclass

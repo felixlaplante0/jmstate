@@ -99,13 +99,17 @@ class HazardMixin:
         base = self.params.base_hazards[str_key](t0, t1)
 
         # Compute time-varying effects
-        mod = (
-            self.design.link_fns[key](t1, indiv_params)
-            @ self.params.link_coefs[str_key]
-        )
+        mod = 0
+        if str_key in self.params.link_coefs:
+            mod = (
+                self.design.link_fns[key](t1, indiv_params)
+                @ self.params.link_coefs[str_key]
+            )
 
         # Compute covariates effect
-        var = x @ self.params.x_coefs[str_key].unsqueeze(-1)
+        var = 0
+        if str_key in self.params.x_coefs:
+            var = x @ self.params.x_coefs[str_key].unsqueeze(-1)
 
         return base + mod + var
 
@@ -129,9 +133,11 @@ class HazardMixin:
         Returns:
             torch.Tensor: The computed cumulative hazard.
         """
+        # Careful with negative times
+        t1 = torch.max(t0, t1)
+
         # Transform to quadrature interval
         half = 0.5 * (t1 - t0)
-
         quad = (
             0.5 * (t0 + t1).unsqueeze(-1) + half.unsqueeze(-1) * self._std_nodes
         ).flatten(start_dim=-2)
@@ -219,7 +225,7 @@ class HazardMixin:
             with rows corresponding to individuals and columns to prediction times.
         """
         assert_all_finite(u, input_name="u")
-        check_consistent_length(u, sample_data)
+        u = torch.broadcast_to(u, (len(sample_data), -1))
 
         x = sample_data.x
         indiv_params = sample_data.indiv_params
