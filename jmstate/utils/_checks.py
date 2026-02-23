@@ -30,9 +30,7 @@ def check_trajectories(trajectories: list[Trajectory], c: torch.Tensor | None):
     if c is not None and any(
         trajectory[-1][0] > c for trajectory, c in zip(trajectories, c, strict=True)
     ):
-        raise ValueError(
-            "Last trajectory time transition not be greater than censoring time"
-        )
+        raise ValueError("Transitions times may not be greater than censoring times")
 
 
 def check_matrix_dim(flat: torch.Tensor, dim: int, precision_type: str):
