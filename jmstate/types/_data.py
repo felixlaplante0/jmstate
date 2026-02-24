@@ -300,7 +300,7 @@ class SampleData(BaseEstimator):
     Raises:
         ValueError: If some trajectory is empty.
         ValueError: If some trajectory is not sorted.
-        ValueError: If some trajectory is not compatible with the censoring times.
+        ValueError: If some trajectory is not compatible with the conditioning times.
         ValueError: If any of the inputs contain NaN or infinite values.
         ValueError: If the size is not consistent between inputs.
 
@@ -334,7 +334,8 @@ class SampleData(BaseEstimator):
         Raises:
             ValueError: If some trajectory is empty.
             ValueError: If some trajectory is not sorted.
-            ValueError: If some trajectory is not compatible with the conditioning times.
+            ValueError: If some trajectory is not compatible with the conditioning 
+                times.
             ValueError: If any of the inputs contain inf or NaN values.
             ValueError: If the size is not consistent between inputs.
         """
