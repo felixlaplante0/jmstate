@@ -229,7 +229,7 @@ class HazardMixin:
 
         x = sample_data.x
         indiv_params = sample_data.indiv_params
-        t_trunc = sample_data.t_trunc
+        t_cond = sample_data.t_cond
 
         # Get buckets from last states
         buckets = build_remaining_buckets(
@@ -240,7 +240,7 @@ class HazardMixin:
         nlogps = torch.zeros(*indiv_params.shape[:-1], u.size(1))
         for key, (idxs, t0) in buckets.items():
             # Compute negative log survival and scatter add
-            t0 = t0 if t_trunc is None else t_trunc[idxs]  # noqa: PLW2901
+            t0 = t0 if t_cond is None else t_cond[idxs]  # noqa: PLW2901
             alts_logliks = self._cum_hazard(
                 key, t0, u[idxs], x[idxs], indiv_params[..., idxs, :]
             )
@@ -301,7 +301,7 @@ class HazardMixin:
         """
         x = sample_data.x
         indiv_params = sample_data.indiv_params
-        t_trunc = sample_data.t_trunc
+        t_cond = sample_data.t_cond
 
         # Get buckets from last states
         current_buckets = build_possible_buckets(
@@ -317,7 +317,7 @@ class HazardMixin:
 
         for j, (key, (idxs, t0, t1)) in enumerate(current_buckets.items()):
             # Sample transition times, and condition with c
-            t0 = t0 if t_trunc is None else t_trunc[idxs]  # noqa: PLW2901
+            t0 = t0 if t_cond is None else t_cond[idxs]  # noqa: PLW2901
             t_sample = self._sample_transition(
                 key, t0, t1, x[idxs], indiv_params[..., idxs, :]
             )
@@ -375,7 +375,7 @@ class HazardMixin:
 
         Returns:
             list[Trajectory]: List of sampled trajectories, one per individual, with
-            each trajectory truncated at the censoring time.
+                each trajectory truncated at the censoring time.
         """
         assert_all_finite(c, input_name="c")
         check_consistent_length(c, sample_data)
@@ -388,14 +388,14 @@ class HazardMixin:
             sample_data.x,
             trajectories_copied,
             sample_data.indiv_params,
-            sample_data.t_trunc,
+            sample_data.t_cond,
         )
 
         # Sample future transitions iteratively
         for _ in range(max_length):
             if self._sample_trajectory_step(sample_data_copied, c):
                 break
-            sample_data_copied.t_trunc = None
+            sample_data_copied.t_cond = None
 
         return [
             trajectory if trajectory[-1][0] <= c[i] else trajectory[:-1]

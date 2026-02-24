@@ -286,10 +286,12 @@ class SampleData(BaseEstimator):
           only if you fully understand the codebase and mechanisms. Trajectory sampling
           may only be used with matrices.
 
-    Truncation Times:
-        - `t_trunc` corresponds to truncation or conditioning times for each individual.
+    Conditioning Times:
+        - `t_cond` corresponds to truncation or conditioning times for each individual.
           This attribute is optional and, if not provided, is set to the maximum
-          observation time per individual.
+          observation time per individual. This represents a landmark time up to which
+          we condition on having observed no transitions. All simulated event times for
+          the individual will be greater than or equal to `t_cond`.
 
     The data class is used for simulation and for prediction of quantities related to
     survival functions or trajectories. Unlike `ModelData`, it assumes exact knowledge
@@ -309,14 +311,14 @@ class SampleData(BaseEstimator):
             `Trajectory` consists of a sequence of `(time, state)` tuples.
         indiv_params (torch.Tensor): Individual parameters with the same number of
             rows as there are trajectories. Use a matrix by default.
-        t_trunc (torch.Tensor | None): Optional truncation times per individual. If
+        t_cond (torch.Tensor | None): Optional conditioning times per individual. If
             None, the maximum observation time is used.
     """
 
     x: torch.Tensor
     trajectories: list[Trajectory]
     indiv_params: torch.Tensor
-    t_trunc: torch.Tensor | None = None
+    t_cond: torch.Tensor | None = None
 
     def __len__(self) -> int:
         """Gets the number of individuals.
@@ -332,7 +334,7 @@ class SampleData(BaseEstimator):
         Raises:
             ValueError: If some trajectory is empty.
             ValueError: If some trajectory is not sorted.
-            ValueError: If some trajectory is not compatible with the truncation times.
+            ValueError: If some trajectory is not compatible with the conditioning times.
             ValueError: If any of the inputs contain inf or NaN values.
             ValueError: If the size is not consistent between inputs.
         """
@@ -341,21 +343,21 @@ class SampleData(BaseEstimator):
                 "x": [torch.Tensor],
                 "trajectories": [list],
                 "indiv_params": [torch.Tensor],
-                "t_trunc": [torch.Tensor, None],
+                "t_cond": [torch.Tensor, None],
             },
             prefer_skip_nested_validation=True,
         )
 
-        check_trajectories(self.trajectories, self.t_trunc)
+        check_trajectories(self.trajectories, self.t_cond)
 
         assert_all_finite(self.x, input_name="x")
         assert_all_finite(self.indiv_params, input_name="indiv_params")
-        assert_all_finite(self.t_trunc, input_name="t_trunc")
+        assert_all_finite(self.t_cond, input_name="t_cond")
 
         check_consistent_length(
             self.x,
             self.indiv_params.transpose(0, -2),
-            self.t_trunc,
+            self.t_cond,
             self.trajectories,
         )
 
