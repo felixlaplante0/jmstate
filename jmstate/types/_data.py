@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
+from numbers import Integral
 from typing import TYPE_CHECKING, Any, Self
 
 import torch
@@ -101,6 +102,8 @@ class ModelDesign(BaseEstimator):
 class ModelData(BaseEstimator):
     r"""Dataclass containing learnable multistate joint model data.
 
+    It can be used with scikit-learn's train-test splits or cross-validation utilities.
+
     Covariates:
         - `x` is a matrix of covariates of shape :math:`(n, p)`, where :math:`n` denotes
           the number of individuals and :math:`p` the number of covariates.
@@ -182,6 +185,32 @@ class ModelData(BaseEstimator):
             int: The number of individuals.
         """
         return len(self.trajectories)
+
+    def __getitem__(self, idxs: Integral | Sequence[Integral] | torch.Tensor) -> Self:
+        """Gets the data for a single individual or a subset of individuals.
+
+        Args:
+            idxs (Integral | Sequence[Integral] | torch.Tensor): The index or indices of
+                the individual(s).
+
+        Returns:
+            Self: The data for the individual(s).
+        """
+        idxs = torch.as_tensor(idxs).flatten()
+
+        x_selected = self.x[idxs]
+        t_selected = self.t[idxs]
+        y_selected = self.y[idxs]
+        trajectories_selected = [self.trajectories[i] for i in idxs]
+        c_selected = self.c[idxs]
+
+        return self.__class__(
+            x=x_selected,
+            t=t_selected,
+            y=y_selected,
+            trajectories=trajectories_selected,
+            c=c_selected,
+        )
 
     def __post_init__(self):
         """Runs the post init conversions.
@@ -271,6 +300,8 @@ class ModelDataUnchecked(ModelData):
 class SampleData(BaseEstimator):
     r"""Dataclass containing individual-level data for sampling procedures.
 
+    It can be used with scikit-learn's train-test splits or cross-validation utilities.
+
     Covariates:
         - `x` is a matrix of covariates of shape :math:`(n, p)`, where :math:`n` denotes
           the number of individuals and :math:`p` the number of covariates.
@@ -328,13 +359,37 @@ class SampleData(BaseEstimator):
         """
         return len(self.trajectories)
 
+    def __getitem__(self, idxs: Integral | Sequence[Integral] | torch.Tensor) -> Self:
+        """Gets the data for a single individual or a subset of individuals.
+
+        Args:
+            idxs (int | slice | Sequence[int] | torch.Tensor): The index or indices of
+                the individual(s).
+
+        Returns:
+            Self: The data for the individual(s).
+        """
+        idxs = torch.as_tensor(idxs).flatten()
+
+        x_selected = self.x[idxs]
+        trajectories_selected = [self.trajectories[i] for i in idxs]
+        indiv_params_selected = self.indiv_params[..., idxs, :]
+        t_cond_selected = self.t_cond[idxs] if self.t_cond is not None else None
+
+        return self.__class__(
+            x=x_selected,
+            trajectories=trajectories_selected,
+            indiv_params=indiv_params_selected,
+            t_cond=t_cond_selected,
+        )
+
     def __post_init__(self):
         """Runs the post init conversions and checks.
 
         Raises:
             ValueError: If some trajectory is empty.
             ValueError: If some trajectory is not sorted.
-            ValueError: If some trajectory is not compatible with the conditioning 
+            ValueError: If some trajectory is not compatible with the conditioning
                 times.
             ValueError: If any of the inputs contain inf or NaN values.
             ValueError: If the size is not consistent between inputs.
