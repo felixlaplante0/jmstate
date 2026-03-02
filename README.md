@@ -129,11 +129,11 @@ params = ModelParameters(
 from jmstate.types import ModelData
 
 data = ModelData(
-    x=x,  # (n, p) covariate matrix
-    t=t_obs,  # (m,) or (n, m) measurement times; NaN-pad if variable
-    y=y_obs,  # (n, m, d) longitudinal observations; NaN-pad if variable
-    trajectories=trajectories,  # list[list[tuple[float, Any]]]
-    c=c,  # (n, 1) right-censoring times
+    x,  # (n, p) covariate matrix
+    t,  # (m,) or (n, m) measurement times; NaN-pad if variable
+    y,  # (n, m, d) longitudinal observations; NaN-pad if variable
+    trajectories,  # list[list[tuple[float, Any]]]
+    c,  # (n, 1) right-censoring times
 )
 ```
 
