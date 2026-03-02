@@ -45,9 +45,9 @@ with $\gamma$ fixed population-level effects, $X_i$ covariates, and $b_i$ indivi
 
 Let $G = (V, E)$ be a directed graph, where $V$ denotes the set of states and $E \subseteq V \times V$ the set of admissible transitions. The graph encodes all possible paths of the multi-state process, allowing for competing, recurrent, or absorbing transitions. The hazard for a transition $k \to k'$ at time $t$ given entry time $t_0$ satisfies
 
-$$\lambda^{k \to k'}(t_0, t) = \lambda_0^{k \to k'}(t_0, t) \exp\left( \alpha^{k \to k'} g(t, \psi_i) + \beta^{k \to k'} X_i \right),$$
+$$\lambda^{k \to k'}(t_0, t) = \lambda_0^{k \to k'}(t_0, t) \exp\left( \alpha^{k \to k'} g^{k \to k'}(t, \psi_i) + \beta^{k \to k'} X_i \right),$$
 
-where $\lambda_0^{k \to k'}$ is a parametric baseline hazard, $g$ is a link function summarising the individual longitudinal trajectory, and $\alpha$, $\beta$ are transition-specific coefficients.
+where $\lambda_0^{k \to k'}$ are parametric baseline hazards, $g^{k \to k'}$ are link functions acting as a bridge between the longitudinal and the semi-Markov multi-state processes, and $\alpha^{k \to k'}$, $\beta^{k \to k'}$ are transition-specific coefficients.
 
 The model supports **arbitrary state graphs** (recurrent, absorbing, monotone, etc.) under a semi-Markov assumption.
 
