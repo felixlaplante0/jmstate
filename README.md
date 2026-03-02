@@ -33,7 +33,7 @@ Full API reference and tutorials: [jmstate documentation](https://felixlaplante0
 
 Individual observations follow
 
-$$y_{ij} = h(t_{ij},\, \psi_i) + \epsilon_{ij}, \qquad \epsilon_{ij} \overset{\text{iid}}{\sim} \mathcal{N}(0,\, R)$$
+$$y_{ij} = h(t_{ij},\, \psi_i) + \epsilon_{ij}, \qquad \epsilon_{ij} \sim \mathcal{N}(0,\, R)$$
 
 where $h$ is a user-defined regression function (e.g. bi-exponential, logistic) and individual parameters are defined via
 
