@@ -97,7 +97,7 @@ def pk_integral_fn(t: torch.Tensor, indiv_params: torch.Tensor):
 
 # Define the model design
 design = ModelDesign(
-    indiv_effects_fn=indiv_effects_fn,
+    indiv_effects_fn,
     regression_fn=pk_fn,
     link_fns={
         (1, 1): pk_integral_fn,
