@@ -3,7 +3,6 @@ from typing import Any, Self, cast
 
 import torch
 from sklearn.base import BaseEstimator  # type: ignore
-from sklearn.utils import check_symmetric  #type: ignore
 from sklearn.utils._param_validation import (  # type: ignore
     Interval,  # type: ignore
     StrOptions,  # type: ignore
@@ -75,7 +74,6 @@ class PrecisionParameters(BaseEstimator, nn.Module):
         Returns:
             Self: The usable representation.
         """
-        check_symmetric(L)
         L = cast(torch.Tensor, torch.linalg.cholesky(P))  # type: ignore
         L.diagonal().log_()
         return cls(flat_from_log_cholesky(L, precision_type), L.size(0), precision_type)
