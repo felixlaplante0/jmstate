@@ -176,7 +176,7 @@ Specifies the functional form of the model.
 | ----------------------- | ------------------------------------------------------- | --------------------------------------------------------------------------- |
 | `individual_effects_fn` | $(\gamma, X, b) \mapsto f(\gamma, X, b) \eqqcolon \psi$ | Maps fixed effects, covariates, and random effects to individual parameters |
 | `regression_fn`         | $t \mapsto f(t, \psi)$                                  | Predicted longitudinal response                                             |
-| `surv`                  | $\left\{ (k, k') \in E : g^{k \to k'} \right\}$         | Survival design: one entry per transition                                   |
+| `surv`                  | $\{ (k, k') \in E : g^{k \to k'} \}$         | Survival design: one entry per transition                                              |
 
 All functions must support broadcasting across MCMC chain and individual dimensions.
 
@@ -189,9 +189,9 @@ Holds all model parameters as PyTorch `nn.Parameter` objects.
 | `fixed_params` | Fixed population-level effects: $\gamma \in \mathbb{R}^q$                                                         |
 | `random_prec`  | Representation of random-effect precision matrix: $\log$-Cholesky factor of $Q^{-1}$                              |
 | `noise_prec`   | Representation of noise precision: $\log$-Cholesky factor of $R^{-1}$                                             |
-| `base_hazards` | Dictionary of base hazards function in $\log$-scale: $\left\{ (k, k') \in E : \log \lambda_0^{k \to k'} \right\}$ |
-| `link_coefs`   | Dictionary of link coefficients: $\left\{ (k, k') \in E : \alpha^{k \to k'} \right\}$                             |
-| `x_coefs`      | Dictionary of covariate effects: $\left\{ (k, s) \in E : \beta^{k \to k'} \right\}$                               |
+| `base_hazards` | Dictionary of base hazards function in $\log$-scale: $\{ (k, k') \in E : \log \lambda_0^{k \to k'} \}$            |
+| `link_coefs`   | Dictionary of link coefficients: $\{ (k, k') \in E : \alpha^{k \to k'} \}$                                        |
+| `x_coefs`      | Dictionary of covariate effects: $\{ (k, s) \in E : \beta^{k \to k'} \}$                                          |
 
 Use `PrecisionParameters.from_covariance` to initialize from a covariance matrix.
 `precision_type` options: `"full"` ($\log$-Cholesky), `"diag"` ($\log$-diagonal), `"spherical"` ($\log$-scalar).
