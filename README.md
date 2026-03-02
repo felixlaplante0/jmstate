@@ -89,9 +89,7 @@ def pk_fn(t: torch.Tensor, indiv_params: torch.Tensor, D: float = 1.0):
 # PK integral function: bi-exponential cumulative link
 def pk_integral_fn(t: torch.Tensor, indiv_params: torch.Tensor):
     A, k, ka = indiv_params.chunk(3, dim=-1)
-    integral = A * (
-        (1.0 / k) * (1 - torch.exp(-k * t)) - (1.0 / ka) * (1 - torch.exp(-ka * t))
-    )
+    integral = A * (1 - torch.exp(-k * t)) / k - (1 - torch.exp(-ka * t)) / ka
     return integral.unsqueeze(-1)
 
 
