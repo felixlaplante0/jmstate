@@ -83,3 +83,90 @@ def plot_params_history(
     plt.tight_layout()
 
     return fig, axes
+
+
+@validate_params(
+    {
+        "figsize": [tuple],
+    },
+    prefer_skip_nested_validation=True,
+)
+def plot_sampler_diagnostics(
+    model: MultiStateJointModel,
+    *,
+    figsize: tuple[int, int] = (8, 4),
+) -> tuple[plt.Figure, np.ndarray]:  # type: ignore
+    r"""Visualize the evolution of sampler diagnostics during fitting.
+
+    This function generates two subplots showing the mean acceptance rate and mean step
+    size across iterations.
+
+    Args:
+        model (MultiStateJointModel): The fitted model whose sampler diagnostics are to
+            be plotted.
+        figsize (tuple[int, int], optional): Figure dimensions `(width, height)`.
+            Defaults to `(8, 4)`.
+
+    Raises:
+        ValueError: If the model sampler is `None` or the diagnostics have fewer than
+            two recorded values.
+
+    Returns:
+        tuple[plt.Figure, np.ndarray]: A tuple containing the matplotlib `Figure`
+            object and a flattened array of `Axes` objects corresponding to the
+            subplots.
+    """
+    from ..model._base import MultiStateJointModel  # noqa: PLC0415
+
+    validate_params(
+        {
+            "model": [MultiStateJointModel],
+        },
+        prefer_skip_nested_validation=True,
+    )
+
+    if model.sampler is None:
+        raise ValueError("Model sampler is None")
+
+    if len(model.sampler.diagnostics_["mean_accept_rate"]) <= 1:
+        raise ValueError(
+            "Model sampler diagnostics have fewer than two recorded values."
+        )
+
+    # Create subplots
+    fig, axes = plt.subplots(1, 2, figsize=figsize)  # type: ignore
+    axes = atleast_1d(axes).ravel()
+
+    axes[0].plot(model.sampler.diagnostics_["mean_accept_rate"])
+    axes[0].set(
+        title="Mean Acceptance Rate",
+        xlabel="Iteration",
+        ylabel="Mean Acceptance Rate",
+    )
+    axes[0].axhline(
+        y=model.sampler.target_accept_rate,
+        color="r",
+        linestyle="--",
+        label="Target Acceptance Rate",
+    )
+
+    axes[1].plot(
+        model.sampler.diagnostics_["mean_step_size"],
+        label=[f"b[{j}]" for j in range(model.sampler.b.size(-1))],
+    )
+    axes[1].set(
+        title="Mean Step Size (component-wise)",
+        xlabel="Iteration",
+        ylabel="Mean Step Size",
+    )
+
+    for ax in axes:
+        ax.axvline(
+            x=model.n_warmup, color="gray", linestyle="--", label="Warmup end"
+        )
+        ax.legend()
+
+    plt.suptitle("Sampler diagnostics")  # type: ignore
+    plt.tight_layout()
+
+    return fig, axes

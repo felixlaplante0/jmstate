@@ -1,3 +1,4 @@
+from collections import defaultdict
 from collections.abc import Callable
 from typing import Any, Self, cast
 
@@ -76,6 +77,7 @@ class MetropolisWithinGibbsSampler:
     logpdfs: torch.Tensor
     j: int
     step_sizes: torch.Tensor
+    diagnostics_: defaultdict[str, list[torch.Tensor]]
     _noise: torch.Tensor
 
     def __init__(
@@ -108,6 +110,9 @@ class MetropolisWithinGibbsSampler:
         # Set state, log pdfs, and individual parameters
         self.b = init_b
         self.reset()
+
+        # Initialize diagnostics
+        self.diagnostics_ = defaultdict(list)
 
         # Initialize step sizes and noise
         self.j = 0
@@ -150,6 +155,10 @@ class MetropolisWithinGibbsSampler:
         adaptation = (mean_accept_mask - self.target_accept_rate) * self.adapt_rate
         self.step_sizes[..., self.j] *= torch.exp(adaptation)
         self.j = (self.j + 1) % self.b.size(-1)
+
+        # Update diagnostics
+        self.diagnostics_["mean_accept_rate"].append(mean_accept_mask.mean())
+        self.diagnostics_["mean_step_size"].append(self.step_sizes.mean(dim=(0, 1)))
 
         return self
 

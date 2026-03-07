@@ -1,16 +1,40 @@
+from bisect import bisect_left
 from numbers import Integral, Real
-from typing import cast
+from typing import Final, cast
 
 import torch
+from rich.console import Console, Group
+from rich.panel import Panel
+from rich.rule import Rule
+from rich.table import Table
+from rich.text import Text
 from sklearn.base import BaseEstimator  # type: ignore
 from sklearn.utils._param_validation import Interval, validate_params  # type: ignore
 from sklearn.utils.validation import check_is_fitted  # type: ignore
+from torch.distributions import Normal
 from torch.nn.utils import parameters_to_vector
 
 from ..types._data import ModelDesign
 from ..types._parameters import ModelParameters
 from ._fit import FitMixin
 from ._predict import PredictMixin
+from ._sampler import MetropolisWithinGibbsSampler
+
+# Constants
+SIGNIFICANCE_LEVELS: Final[tuple[float, ...]] = (
+    0.001,
+    0.01,
+    0.05,
+    0.1,
+    float("inf"),
+)
+SIGNIFICANCE_CODES: Final[tuple[str, ...]] = (
+    "[red3]***[/]",
+    "[orange3]**[/]",
+    "[yellow3]*[/]",
+    ".",
+    "",
+)
 
 
 class MultiStateJointModel(BaseEstimator, FitMixin, PredictMixin):
@@ -42,6 +66,7 @@ class MultiStateJointModel(BaseEstimator, FitMixin, PredictMixin):
         - `n_bisect`: Number of bisection steps for transition time sampling.
 
     MCMC settings:
+        - `sampler`: MCMC sampler instance used during model fitting.
         - `n_chains`: Number of parallel MCMC chains.
         - `init_step_size`: Initial kernel standard deviation in
            Metropolis-Within-Gibbs.
@@ -76,6 +101,8 @@ class MultiStateJointModel(BaseEstimator, FitMixin, PredictMixin):
         optimizer (torch.optim.Optimizer | None): Optimizer used for fitting.
         n_quad (int): Number of Gauss-Legendre quadrature nodes for hazard integration.
         n_bisect (int): Number of bisection steps for transition time sampling.
+        sampler (MetropolisWithinGibbsSampler | None): MCMC sampler instance used during
+            model fitting.
         n_chains (int): Number of parallel MCMC chains.
         init_step_size (float): Initial kernel standard deviation in
             Metropolis-Within-Gibbs.
@@ -101,8 +128,7 @@ class MultiStateJointModel(BaseEstimator, FitMixin, PredictMixin):
         >>> optimizer = torch.optim.Adam(params.parameters(), lr=0.1)
         >>> model = MultiStateJointModel(design, params, optimizer)
         >>> model.fit(data)
-        >>> from jmstate.utils import summary
-        >>> summary(model)
+        >>> model.summary()
     """
 
     design: ModelDesign
@@ -110,6 +136,7 @@ class MultiStateJointModel(BaseEstimator, FitMixin, PredictMixin):
     optimizer: torch.optim.Optimizer | None
     n_quad: int
     n_bisect: int
+    sampler: MetropolisWithinGibbsSampler | None
     n_chains: int
     init_step_size: float
     adapt_rate: float
@@ -258,3 +285,62 @@ class MultiStateJointModel(BaseEstimator, FitMixin, PredictMixin):
         check_is_fitted(self, "fim_")
 
         return cast(torch.Tensor, self.fim_).inverse().diag().sqrt()
+
+    def summary(self):
+        r"""Print a statistical summary of the fitted multistate joint model.
+
+        This function displays the estimated parameter values, their standard errors,
+        and the (nullity) p-values testing the hypothesis that each coefficient is zero.
+        Note that for certain parameters—such as precision components—these p-values
+        may not be meaningful and should be interpreted with caution.
+
+        Additionally, the function prints model selection metrics including the log
+        likelihood, Akaike Information Criterion (AIC), and Bayesian Information
+        Criterion (BIC), with color-enhanced formatting for readability.
+
+        Raises:
+            ValueError: If the model has not been fitted.
+        """
+        vector = parameters_to_vector(self.params.parameters())
+        stderr = self.stderr
+        zvalues = torch.abs(vector / stderr)
+        pvalues = 2 * (1 - Normal(0, 1).cdf(zvalues))
+
+        table = Table()
+        table.add_column("Parameter name", justify="left")
+        table.add_column("Value", justify="center")
+        table.add_column("Standard Error", justify="center")
+        table.add_column("z-value", justify="center")
+        table.add_column("p-value", justify="center")
+        table.add_column("Significance level", justify="center")
+
+        i = 0
+        for name, val in self.params.named_parameters():
+            for j in range(val.numel()):
+                code = SIGNIFICANCE_CODES[
+                    bisect_left(SIGNIFICANCE_LEVELS, pvalues[i].item())
+                ]
+
+                table.add_row(
+                    f"{name}[{j}]",
+                    f"{vector[i].item():.3f}",
+                    f"{stderr[i].item():.3f}",
+                    f"{zvalues[i].item():.3f}",
+                    f"{pvalues[i].item():.3f}",
+                    code,
+                )
+                i += 1
+
+        criteria = Text(
+            f"Log-likelihood: {self.loglik_:.3f}\n"
+            f"AIC: {self.aic_:.3f}\n"
+            f"BIC: {self.bic_:.3f}",
+            style="bold cyan",
+        )
+
+        content = Group(table, Rule(style="dim"), criteria, Rule(style="dim"))
+        panel = Panel(
+            content, title="Model Summary", border_style="green", expand=False
+        )
+
+        Console().print(panel)

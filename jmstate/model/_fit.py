@@ -24,6 +24,7 @@ class FitMixin(PriorMixin, LongitudinalMixin, HazardMixin, MCMCMixin, nn.Module)
     design: ModelDesign
     params: ModelParameters
     optimizer: torch.optim.Optimizer | None
+    sampler: MetropolisWithinGibbsSampler | None
     n_warmup: int
     n_subsample: int
     max_iter_fit: int
@@ -60,6 +61,7 @@ class FitMixin(PriorMixin, LongitudinalMixin, HazardMixin, MCMCMixin, nn.Module)
         super().__init__(*args, **kwargs)
 
         self.optimizer = optimizer
+        self.sampler = None
         self.max_iter_fit = max_iter_fit
         self.tol = tol
         self.window_size = window_size
@@ -280,9 +282,9 @@ class FitMixin(PriorMixin, LongitudinalMixin, HazardMixin, MCMCMixin, nn.Module)
         ).prepare(self)
 
         # Initialize MCMC
-        sampler = self._init_sampler(data).run(self.n_warmup)
+        self.sampler = self._init_sampler(data).run(self.n_warmup)
 
-        self._fit(data, sampler)
-        self._compute_fim_and_criteria(data, sampler)
+        self._fit(data, self.sampler)
+        self._compute_fim_and_criteria(data, self.sampler)
 
         return self

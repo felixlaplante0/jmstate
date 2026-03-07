@@ -149,16 +149,17 @@ model = MultiStateJointModel(design, params, optimizer)
 metrics = model.fit(data)
 ```
 
-### Step 5 — Print the results
+### Step 5 — Print and plot the results
 
 ```python
-from jmstate.utils import plot_params_history, summary
+from jmstate.utils import plot_params_history, plot_sampler_diagnostics
 
 # Print summary statistics (nullity Wald statistics, p-values, AIC, BIC, etc.)
-summary(model.params)
+model.summary()
 
-# Plot parameter history (stochastic optimization)
-plot_params_history(metrics)
+# Plot parameter history (stochastic optimization) and MCMC sampler diagnostics
+plot_params_history(model)
+plot_sampler_diagnostics(model)
 plt.show()
 ```
 

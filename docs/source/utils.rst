@@ -12,4 +12,4 @@ Utils
 
    build_buckets
    plot_params_history
-   summary
+   plot_sampler_diagnostics
