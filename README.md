@@ -33,7 +33,7 @@ Full API reference and tutorials: [jmstate documentation](https://felixlaplante0
 
 Individual observations follow
 
-$$y_{ij} = h(t_{ij},\, \psi_i) + \epsilon_{ij}, \qquad \epsilon_{ij} \sim \mathcal{N}(0, R)$$
+$$y_{ij} = h(t_{ij}, \psi_i) + \epsilon_{ij}, \qquad \epsilon_{ij} \sim \mathcal{N}(0, R)$$
 
 where $h$ is a user-defined regression function (e.g. bi-exponential, logistic) and individual parameters are defined via
 
@@ -55,9 +55,9 @@ The model supports **arbitrary state graphs** (recurrent, absorbing, monotone, e
 
 Parameters are estimated by maximising the observed-data log-likelihood using the **Fisher identity**
 
-$$\nabla_\theta \log \mathcal{L}(\theta;\, x) = \mathbb{E}_{b \sim p(\cdot \mid x, \theta)}\left[ \nabla_\theta \log \mathcal{L}(\theta;\, x, b) \right],$$
+$$\nabla_\theta \log \mathcal{L}(\theta; x) = \mathbb{E}_{b \sim p(\cdot \mid x, \theta)}\left[ \nabla_\theta \log \mathcal{L}(\theta; x, b) \right],$$
 
-where $\mathcal{L}(\theta;\, x, b)$ is the complete likelihood of the data given the parameters and random effects.
+where $\mathcal{L}(\theta; x, b)$ is the complete likelihood of the data given the parameters and random effects.
 
 This gradient is approximated via a **Metropolis-Within-Gibbs MCMC** sampler over the random effects, combined with a stochastic gradient ascent step. Convergence is monitored via an $R^2$-based stationarity test.
 
