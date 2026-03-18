@@ -1,13 +1,18 @@
+from __future__ import annotations
+
 import itertools
 from array import array
 from collections import defaultdict
 from functools import lru_cache
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import torch
 from sklearn.utils._param_validation import validate_params  # type: ignore
 
 from ..types._defs import BucketData, Trajectory
+
+if TYPE_CHECKING:
+    from ..model._hazard import HazardMixin
 
 
 @validate_params(
@@ -85,17 +90,17 @@ def _build_alt_map(
     )
 
 
-def build_all_buckets(
+def build_quad_buckets(
+    model: HazardMixin,
     trajectories: list[Trajectory],
     c: torch.Tensor,
-    surv_keys: tuple[tuple[Any, Any], ...],
 ) -> dict[tuple[Any, Any], tuple[torch.Tensor, ...]]:
     """Build vectorizable bucket representation.
 
     Args:
+        model (HazardMixin): The model instance.
         trajectories (list[Trajectory]): The trajectories.
         c (torch.Tensor): Censoring times.
-        surv_keys (tuple[tuple[Any, Any], ...]): The survival keys.
 
     Raises:
         TypeError: If the default dtype is not `float32` or `float64`.
@@ -104,7 +109,7 @@ def build_all_buckets(
         dict[tuple[Any, Any], tuple[torch.Tensor, ...]]: The vectorizable buckets
             representation.
     """
-    alt_map = _build_alt_map(surv_keys)
+    alt_map = _build_alt_map(tuple(model.design.link_fns.keys()))
     dtype = torch.get_default_dtype()
     if dtype == torch.float32:
         typecode = "f"
@@ -140,28 +145,34 @@ def build_all_buckets(
             t1s.append(c_i)
             obs.append(False)
 
-    return {
-        key: (
-            torch.frombuffer(idxs, dtype=torch.int64),
-            torch.frombuffer(t0s, dtype=dtype).reshape(-1, 1),
-            torch.frombuffer(t1s, dtype=dtype).reshape(-1, 1),
-            torch.frombuffer(obs, dtype=torch.bool),
+    out: dict[tuple[Any, Any], tuple[torch.Tensor, ...]] = {}
+    for key, (idxs, t0s, t1s, obs) in buckets.items():
+        idxs_ = torch.frombuffer(idxs, dtype=torch.int64)
+        t0_ = torch.frombuffer(t0s, dtype=dtype).reshape(-1, 1)
+        t1_ = torch.frombuffer(t1s, dtype=dtype).reshape(-1, 1)
+        obs_ = torch.frombuffer(obs, dtype=torch.bool)
+        half = 0.5 * (t1_ - t0_)
+        quad = torch.cat(
+            [t1_, (t0_ + t1_).addmm(half, model._std_nodes, beta=0.5)],  # type: ignore
+            dim=-1,
         )
-        for key, (idxs, t0s, t1s, obs) in buckets.items()
-    }
+
+        out[key] = (idxs_, t0_, obs_, half, quad)
+
+    return out
 
 
-def build_possible_buckets(
+def build_remaining_buckets(
+    model: HazardMixin,
     trajectories: list[Trajectory],
     c: torch.Tensor,
-    surv_keys: tuple[tuple[Any, Any], ...],
 ) -> dict[tuple[Any, Any], tuple[torch.Tensor, ...]]:
     """Build possible bucket representation.
 
     Args:
+        model (HazardMixin): The model instance.
         trajectories (list[Trajectory]): The trajectories.
         c (torch.Tensor): Censoring times.
-        surv_keys (tuple[tuple[Any, Any], ...]): The survival keys.
 
     Raises:
         TypeError: If the default dtype is not `float32` or `float64`.
@@ -170,7 +181,7 @@ def build_possible_buckets(
         dict[tuple[Any, Any], tuple[torch.Tensor, ...]]: The possible buckets
             representation.
     """
-    alt_map = _build_alt_map(surv_keys)
+    alt_map = _build_alt_map(tuple(model.design.link_fns.keys()))
     dtype = torch.get_default_dtype()
     if dtype == torch.float32:
         typecode = "f"
@@ -203,52 +214,4 @@ def build_possible_buckets(
             c[idxs_tensor],
         )
         for key, (idxs, t0s) in buckets.items()
-    }
-
-
-def build_remaining_buckets(
-    trajectories: list[Trajectory],
-    surv_keys: tuple[tuple[Any, Any], ...],
-) -> dict[tuple[Any, Any], tuple[torch.Tensor, ...]]:
-    """Build remaining bucket representation.
-
-    Args:
-        trajectories (list[Trajectory]): The trajectories.
-        surv_keys (tuple[tuple[Any, Any], ...]): The survival keys.
-
-    Raises:
-        TypeError: If the default dtype is not `float32` or `float64`.
-
-    Returns:
-        dict[tuple[Any, Any], tuple[torch.Tensor, ...]]: The remaining buckets
-            representation.
-    """
-    alt_map = _build_alt_map(surv_keys)
-    dtype = torch.get_default_dtype()
-    if dtype == torch.float32:
-        typecode = "f"
-    elif dtype == torch.float64:
-        typecode = "d"
-    else:
-        raise TypeError(f"Unsupported default dtype: {dtype}")
-
-    # Initialize buckets
-    buckets: defaultdict[tuple[Any, Any], tuple[array[int], array[float]]] = (
-        defaultdict(lambda: (array("q"), array(typecode)))
-    )
-
-    # Process each individual trajectory
-    for i, trajectory in enumerate(trajectories):
-        last_t, last_s = trajectory[-1]
-        for key in alt_map[last_s]:
-            idxs, t1s = buckets[key]
-            idxs.append(i)
-            t1s.append(last_t)
-
-    return {
-        key: (
-            torch.frombuffer(idxs, dtype=torch.int64),
-            torch.frombuffer(t1s, dtype=dtype).reshape(-1, 1),
-        )
-        for key, (idxs, t1s) in buckets.items()
     }

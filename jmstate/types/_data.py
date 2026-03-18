@@ -14,7 +14,7 @@ from sklearn.utils.validation import (  # type: ignore
 )
 
 from ..utils._checks import check_trajectories
-from ..utils._surv import build_all_buckets
+from ..utils._surv import build_quad_buckets
 from ._defs import IndividualParametersFn, LinkFn, RegressionFn, Trajectory
 
 if TYPE_CHECKING:
@@ -267,31 +267,16 @@ class ModelDataUnchecked(ModelData):
         """Sets the representation for likelihood computations according to model.
 
         Args:
-            model (MCMCMixin): The multistate joint model.
+            model (FitMixin | PredictMixi): The model instance.
 
         Returns:
             Self: The prepared (completed) data.
         """
-
-        def quad_fn(
-            t0: torch.Tensor, t1: torch.Tensor
-        ) -> tuple[torch.Tensor, torch.Tensor]:
-            half = 0.5 * (t1 - t0)
-            return half, torch.cat(
-                [t1, (t0 + t1).addmm(half, model._std_nodes, beta=0.5)],  # type: ignore
-                dim=-1,
-            )
-
         self.valid_mask = ~self.y.isnan()
         self.n_valid = self.valid_mask.sum(dim=-2).to(self.y.dtype)
         self.valid_t = self.t.nan_to_num(self.t.nanmean().item())
         self.valid_y = self.y.nan_to_num()
-        self.buckets = build_all_buckets(
-            self.trajectories, self.c, tuple(model.design.link_fns.keys())
-        )
-        self.quads = {
-            key: quad_fn(t0, t1) for key, (_, t0, t1, _) in self.buckets.items()
-        }
+        self.quad_buckets = build_quad_buckets(model, self.trajectories, self.c)
 
         return self
 

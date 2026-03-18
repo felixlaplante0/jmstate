@@ -17,7 +17,7 @@ from ..types._data import (
 )
 from ..types._defs import Trajectory
 from ..types._parameters import ModelParameters
-from ..utils._surv import build_possible_buckets, build_remaining_buckets
+from ..utils._surv import build_remaining_buckets
 
 
 class HazardMixin:
@@ -27,8 +27,6 @@ class HazardMixin:
     params: ModelParameters
     n_quad: int
     n_bisect: int
-    _std_nodes: torch.Tensor
-    _std_weights: torch.Tensor
 
     def __init__(
         self,
@@ -163,9 +161,7 @@ class HazardMixin:
         """
         logliks = torch.zeros(indiv_params.shape[:-1])
 
-        for key, (idxs, t0, _, obs) in data.buckets.items():
-            # Used cached quadrature points
-            half, quad = data.quads[key]
+        for key, (idxs, t0, obs, half, quad) in data.quad_buckets.items():
             vals = self._log_hazard(
                 key, t0, quad, data.x[idxs], indiv_params[..., idxs, :]
             )
@@ -233,7 +229,7 @@ class HazardMixin:
 
         # Get buckets from last states
         buckets = build_remaining_buckets(
-            sample_data.trajectories, tuple(self.design.link_fns.keys())
+            self, sample_data.trajectories, u.max(dim=1).values
         )
 
         # Compute the log probabilities summing over transitions
@@ -304,9 +300,7 @@ class HazardMixin:
         t_cond = sample_data.t_cond
 
         # Get buckets from last states
-        current_buckets = build_possible_buckets(
-            sample_data.trajectories, c, tuple(self.design.link_fns.keys())
-        )
+        current_buckets = build_remaining_buckets(self, sample_data.trajectories, c)
 
         if not current_buckets:
             return True
