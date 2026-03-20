@@ -1,6 +1,6 @@
 from collections import defaultdict
 from collections.abc import Callable
-from typing import Any, Self, cast
+from typing import Any, Self
 
 import torch
 
