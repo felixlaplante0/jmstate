@@ -7,7 +7,6 @@ from sklearn.utils._param_validation import Interval, validate_params  # type: i
 from sklearn.utils.validation import (  # type: ignore
     assert_all_finite,  # type: ignore
     check_consistent_length,  # type: ignore
-    check_is_fitted,  # type: ignore
 )
 from torch.nn.utils import parameters_to_vector, vector_to_parameters
 from tqdm import trange
@@ -50,14 +49,9 @@ class PredictMixin(HazardMixin, MCMCMixin):
         Args:
             sample_size (int): The desired sample size.
 
-        Raises:
-            ValueError: If the model is not fitted.
-
         Returns:
             torch.Tensor: A tensor of sampled model parameters as vectors.
         """
-        check_is_fitted(self, "fim_")
-
         dist = torch.distributions.MultivariateNormal(
             loc=parameters_to_vector(self.params.parameters()).detach(),
             precision_matrix=cast(torch.Tensor, self.fim_),

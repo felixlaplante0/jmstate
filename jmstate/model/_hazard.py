@@ -97,19 +97,17 @@ class HazardMixin:
         base = self.params.base_hazards[str_key](t0, t1)
 
         # Compute time-varying effects
-        mod = 0
-        if str_key in self.params.link_coefs:
-            mod = (
-                self.design.link_fns[key](t1, indiv_params)
-                @ self.params.link_coefs[str_key]
-            )
+        mod = (
+            self.design.link_fns[key](t1, indiv_params)
+            @ self.params.link_coefs[str_key]
+        )
 
-        # Compute covariates effect
+        # Compute covariates effect (if any)
         var = 0
         if str_key in self.params.x_coefs:
             var = x @ self.params.x_coefs[str_key].unsqueeze(-1)
 
-        return base + mod + var
+        return (base + mod + var).reshape((*indiv_params.shape[:-1], -1))
 
     def _cum_hazard(
         self,

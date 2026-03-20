@@ -3,6 +3,7 @@ from typing import Any, Self
 from warnings import warn
 
 import torch
+from sklearn.base import check_is_fitted  # type: ignore
 from sklearn.utils._param_validation import validate_params  # type: ignore
 from torch import nn
 from torch.func import jacfwd  # type: ignore
@@ -27,10 +28,9 @@ class FitMixin(PriorMixin, LongitudinalMixin, HazardMixin, MCMCMixin, nn.Module)
     sampler: MetropolisWithinGibbsSampler | None
     n_warmup: int
     n_subsample: int
-    max_iter_fit: int
+    max_iter: int
     tol: float
     window_size: int
-    n_samples_summary: int
     verbose: bool | int
     params_history_: list[torch.Tensor]
     fim_: torch.Tensor | None
@@ -41,10 +41,9 @@ class FitMixin(PriorMixin, LongitudinalMixin, HazardMixin, MCMCMixin, nn.Module)
     def __init__(
         self,
         optimizer: torch.optim.Optimizer | None,
-        max_iter_fit: int,
+        max_iter: int,
         tol: float,
         window_size: int,
-        n_samples_summary: int,
         *args: Any,
         **kwargs: Any,
     ):
@@ -52,20 +51,17 @@ class FitMixin(PriorMixin, LongitudinalMixin, HazardMixin, MCMCMixin, nn.Module)
 
         Args:
             optimizer (torch.optim.Optimizer): The optimizer.
-            max_iter_fit (int): The maximum number of iterations for fitting.
+            max_iter (int): The maximum number of iterations for fitting.
             tol (float): The tolerance for the convergence.
             window_size (int): The window size for the convergence.
-            n_samples_summary (int): The number of samples used to compute Fisher
-                Information Matrix and model selection criteria.
         """
         super().__init__(*args, **kwargs)
 
         self.optimizer = optimizer
         self.sampler = None
-        self.max_iter_fit = max_iter_fit
+        self.max_iter = max_iter
         self.tol = tol
         self.window_size = window_size
-        self.n_samples_summary = n_samples_summary
 
     def _logpdfs_fn(
         self,
@@ -124,7 +120,7 @@ class FitMixin(PriorMixin, LongitudinalMixin, HazardMixin, MCMCMixin, nn.Module)
         Raises:
             ValueError: If the optimizer is not initialized.
         """
-        if self.max_iter_fit <= 0:
+        if self.max_iter <= 0:
             return
 
         if self.optimizer is None:
@@ -137,7 +133,7 @@ class FitMixin(PriorMixin, LongitudinalMixin, HazardMixin, MCMCMixin, nn.Module)
             return loss.item()
 
         for i in trange(  # noqa: B007
-            self.max_iter_fit,
+            self.max_iter,
             desc="Fitting joint model",
             disable=not bool(self.verbose),
         ):
@@ -152,79 +148,13 @@ class FitMixin(PriorMixin, LongitudinalMixin, HazardMixin, MCMCMixin, nn.Module)
             if self._is_converged():
                 break
 
-        if i == self.max_iter_fit - 1:  # type: ignore
+        if i == self.max_iter - 1:  # type: ignore
             warn(
                 "Model may not have converged in the specified number of iterations. "
-                "Try to increase `max_iter_fit`, `tol`, or `window_size`. Also try "
+                "Try to increase `max_iter`, `tol`, or `window_size`. Also try "
                 "to increase `n_subsample` or `n_warmup` for better MCMC mixing.",
                 stacklevel=2,
             )
-
-    def _compute_fim_and_criteria(
-        self, data: ModelDataUnchecked, sampler: MetropolisWithinGibbsSampler
-    ):
-        """Computes the Fisher Information Matrix and model selection criteria.
-
-        Args:
-            data (ModelData): The data.
-            sampler (MetropolisWithinGibbsSampler): The sampler.
-        """
-        if self.n_samples_summary <= 0:
-            return
-
-        n, q = len(data), sampler.b.size(-1)
-
-        # Jac forward since output dimension > input dimension
-        @jacfwd  # type: ignore
-        def _dict_jac_fn(
-            named_parameters_dict: dict[str, torch.Tensor], b: torch.Tensor
-        ) -> torch.Tensor:
-            with _reparametrize_module(self, named_parameters_dict):
-                return self._logpdfs_fn(data, b).mean(dim=0)
-
-        def _jac_fn(b: torch.Tensor) -> torch.Tensor:
-            out = _dict_jac_fn(dict(self.named_parameters()), b)  # type: ignore
-            return torch.cat([p.reshape(n, -1) for p in out.values()], dim=-1)  # type: ignore
-
-        # Initialize accumulators
-        mjac = torch.zeros(n, self.params.numel())
-        logpdf = 0.0
-        mb = torch.zeros(n, q)
-        mb2 = torch.zeros(n, q, q)
-
-        n_iter = ceil(self.n_samples_summary / self.n_chains)
-        for _ in trange(
-            n_iter,
-            desc="Computing FIM and Model Selection Criteria",
-            disable=not bool(self.verbose),
-        ):
-            # Mean jacobian across chains
-            mjac += _jac_fn(sampler.b).detach()  # type: ignore
-
-            # Mean logpdf across chains
-            logpdf += sampler.logpdfs.sum().item() / self.n_chains
-
-            # Mean and outer product of b across chains
-            mb += sampler.b.mean(dim=0)
-            mb2 += torch.einsum("ijk,ijl->jkl", sampler.b, sampler.b) / self.n_chains
-
-            sampler.run(self.n_subsample)
-
-        mjac /= n_iter
-        logpdf /= n_iter
-        mb /= n_iter
-        mb2 /= n_iter
-
-        # Compute FIM as variance of the score
-        self.fim_ = mjac.T @ mjac
-
-        # Compute entropy Laplace approximation
-        covs = mb2 - torch.einsum("ij,ik->ijk", mb, mb)
-        entropy = 0.5 * (torch.logdet(covs) + self.params.random_prec.dim).sum().item()
-
-        self.loglik_ = logpdf + entropy
-        self.aic_ = -2 * self.loglik_ + 2 * self.params.numel()
-        self.bic_ = -2 * self.loglik_ + torch.logdet(self.fim_).item()
 
     @validate_params(
         {
@@ -237,7 +167,7 @@ class FitMixin(PriorMixin, LongitudinalMixin, HazardMixin, MCMCMixin, nn.Module)
 
         Computes the Maximum Likelihood Estimate (MLE) :math:`\hat{\theta}` of the model
         parameters. Optimization is performed using the configured `optimizer` for up to
-        `max_iter_fit` iterations. Convergence is assessed via a linearity-based
+        `max_iter` iterations. Convergence is assessed via a linearity-based
         stationarity test on the last `window_size` iterates: the :math:`R^2` statistic
         measures whether the trajectory of each parameter component is better explained
         by a linear trend than by a constant. Convergence is declared when all
@@ -251,21 +181,6 @@ class FitMixin(PriorMixin, LongitudinalMixin, HazardMixin, MCMCMixin, nn.Module)
             \nabla_\theta \log \mathcal{L}(\theta ; x) = \mathbb{E}_{b \sim p(\cdot
             \mid x, \theta)} \left( \nabla_\theta \log \mathcal{L}(\theta ; x, b)
             \right).
-
-        The expected Fisher Information Matrix is estimated as:
-
-        .. math::
-            \mathcal{I}_n(\theta) = \sum_{i=1}^n \mathbb{E}_{b \sim p(\cdot \mid x_i,
-            \hat{\theta})} \left(\nabla \log \mathcal{L}(\hat{\theta} ; x_i, b) \nabla
-            \log \mathcal{L}(\hat{\theta} ; x_i, b)^T \right).
-
-        Model selection criteria are computed using a Laplace approximation of the
-        posterior distribution, providing closed-form estimates of entropy. The
-        parameter `n_samples_summary` controls the number of posterior samples used for
-        computing the Fisher Information Matrix and selection metrics; increasing this
-        number improves accuracy at the cost of computational time.
-
-        For additional details, see ISSN 2824-7795.
 
         Args:
             data (ModelData): Dataset containing covariates, longitudinal measurements,
@@ -284,7 +199,124 @@ class FitMixin(PriorMixin, LongitudinalMixin, HazardMixin, MCMCMixin, nn.Module)
         # Initialize MCMC
         self.sampler = self._init_sampler(data).run(self.n_warmup)
 
-        self._fit(data, self.sampler)
-        self._compute_fim_and_criteria(data, self.sampler)
+        if self.optimizer is None:
+            raise ValueError("Optimizer is not initialized.")
+
+        def closure():
+            self.optimizer.zero_grad()  # type: ignore
+            loss = -self.sampler.logpdfs_fn(self.sampler.b).mean()  # type: ignore
+            loss.backward()  # type: ignore
+            return loss.item()
+
+        i = 0
+        for i in trange(  # noqa: B007
+            self.max_iter,
+            desc="Fitting joint model",
+            disable=not bool(self.verbose),
+        ):
+            self.optimizer.step(closure)
+            self.params_history_.append(
+                parameters_to_vector(self.params.parameters()).detach()
+            )
+
+            # Restore logpdfs and indiv_params, because parameters changed
+            self.sampler.reset().run(self.n_subsample)
+
+            if self._is_converged():
+                break
+
+        if i == self.max_iter - 1:
+            warn(
+                "Model may not have converged in the specified number of iterations. "
+                "Try to increase `max_iter`, `tol`, or `window_size`. Also try "
+                "to increase `n_subsample` or `n_warmup` for better MCMC mixing.",
+                stacklevel=2,
+            )
+
+        return self
+
+    def compute_summary(self, n_samples: int = 500) -> Self:
+        r"""Computes summary statistics for the fitted model.
+
+        The expected Fisher Information Matrix is estimated as:
+
+        .. math::
+            \mathcal{I}_n(\theta) = \sum_{i=1}^n \mathbb{E}_{b \sim p(\cdot \mid x_i,
+            \hat{\theta})} \left(\nabla \log \mathcal{L}(\hat{\theta} ; x_i, b) \nabla
+            \log \mathcal{L}(\hat{\theta} ; x_i, b)^T \right).
+
+        Model selection criteria are computed using a Laplace approximation of the
+        posterior distribution, providing closed-form estimates of entropy. The
+        parameter `n_samples` controls the number of posterior samples used for
+        computing the Fisher Information Matrix and selection metrics; increasing this
+        number improves accuracy at the cost of computational time.
+
+        For additional details, see ISSN 2824-7795.
+
+        Args:
+            n_samples (int, optional): Number of posterior samples to use for computing
+                the Fisher Information Matrix and selection metrics. Defaults to 500.
+
+        Returns:
+            Self: The fitted model with summary statistics computed.
+        """
+        check_is_fitted(self, "sampler")
+
+        n, q = self.sampler.b.shape[1:]  # type: ignore
+
+        # Jac forward since output dimension > input dimension
+        @jacfwd  # type: ignore
+        def _dict_jac_fn(
+            named_parameters_dict: dict[str, torch.Tensor],
+        ) -> torch.Tensor:
+            with _reparametrize_module(self, named_parameters_dict):
+                return self.sampler.logpdfs_fn(self.sampler.b).mean(dim=0)  # type: ignore
+
+        def _jac_fn() -> torch.Tensor:
+            out = _dict_jac_fn(dict(self.named_parameters()))  # type: ignore
+            return torch.cat([p.reshape(n, -1) for p in out.values()], dim=-1)  # type: ignore
+
+        # Initialize accumulators
+        mjac = torch.zeros(n, self.params.numel())
+        logpdf = 0.0
+        mb = torch.zeros(n, q)
+        mb2 = torch.zeros(n, q, q)
+
+        n_iter = ceil(n_samples / self.n_chains)
+        for _ in trange(
+            n_iter,
+            desc="Computing FIM and Model Selection Criteria",
+            disable=not bool(self.verbose),
+        ):
+            # Mean jacobian across chains
+            mjac += _jac_fn().detach()  # type: ignore
+
+            # Mean logpdf across chains
+            logpdf += self.sampler.logpdfs.sum().item() / self.n_chains  # type: ignore
+
+            # Mean and outer product of b across chains
+            mb += self.sampler.b.mean(dim=0)  # type: ignore
+            mb2 += (
+                torch.einsum("ijk,ijl->jkl", self.sampler.b, self.sampler.b)  # type: ignore
+                / self.n_chains
+            )
+
+            self.sampler.run(self.n_subsample)  # type: ignore
+
+        mjac /= n_iter
+        logpdf /= n_iter
+        mb /= n_iter
+        mb2 /= n_iter
+
+        # Compute FIM as variance of the score
+        self.fim_ = mjac.T @ mjac
+
+        # Compute entropy Laplace approximation
+        covs = mb2 - torch.einsum("ij,ik->ijk", mb, mb)
+        entropy = 0.5 * (torch.logdet(covs) + self.params.random_prec.dim).sum().item()
+
+        self.loglik_ = logpdf + entropy
+        self.aic_ = -2 * self.loglik_ + 2 * self.params.numel()
+        self.bic_ = -2 * self.loglik_ + torch.logdet(self.fim_).item()
 
         return self

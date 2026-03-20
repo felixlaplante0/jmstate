@@ -99,10 +99,7 @@ class MetropolisWithinGibbsSampler:
             adapt_rate (float): Adaptation rate for the step_size.
             target_accept_rate (float): Mean acceptance target.
         """
-        self.logpdfs_fn = cast(  # type: ignore
-            Callable[[torch.Tensor], torch.Tensor],
-            torch.no_grad()(logpdfs_fn),
-        )
+        self.logpdfs_fn = logpdfs_fn
         self.n_chains = n_chains
         self.adapt_rate = adapt_rate
         self.target_accept_rate = target_accept_rate
@@ -119,6 +116,7 @@ class MetropolisWithinGibbsSampler:
         self.step_sizes = torch.full((1, *self.b.shape[1:]), init_step_size)
         self._noise = torch.empty(*self.b.shape[:-1])
 
+    @torch.no_grad()  # type: ignore
     def reset(self) -> Self:
         """Resets the log pdfs and individual parameters.
 
@@ -128,6 +126,7 @@ class MetropolisWithinGibbsSampler:
         self.logpdfs = self.logpdfs_fn(self.b)
         return self
 
+    @torch.no_grad()  # type: ignore
     def step(self) -> Self:
         """Performs a single kernel step.
 
@@ -162,6 +161,7 @@ class MetropolisWithinGibbsSampler:
 
         return self
 
+    @torch.no_grad()  # type: ignore
     def run(self, n_steps: int) -> Self:
         """Runs the sampler for a given number of steps.
 

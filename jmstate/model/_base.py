@@ -1,6 +1,6 @@
 from bisect import bisect_left
 from numbers import Integral, Real
-from typing import Final, cast
+from typing import Final
 
 import torch
 from rich.console import Console, Group
@@ -10,7 +10,6 @@ from rich.table import Table
 from rich.text import Text
 from sklearn.base import BaseEstimator  # type: ignore
 from sklearn.utils._param_validation import Interval, validate_params  # type: ignore
-from sklearn.utils.validation import check_is_fitted  # type: ignore
 from torch.distributions import Normal
 from torch.nn.utils import parameters_to_vector
 
@@ -143,10 +142,9 @@ class MultiStateJointModel(BaseEstimator, FitMixin, PredictMixin):
     target_accept_rate: float
     n_warmup: int
     n_subsample: int
-    max_iter_fit: int
+    max_iter: int
     tol: float
     window_size: int
-    n_samples_summary: int
     verbose: bool | int
     params_history_: list[torch.Tensor]
     fim_: torch.Tensor | None
@@ -166,11 +164,10 @@ class MultiStateJointModel(BaseEstimator, FitMixin, PredictMixin):
             "adapt_rate": [Interval(Real, 0, None, closed="left")],
             "target_accept_rate": [Interval(Real, 0, 1, closed="neither")],
             "n_warmup": [Interval(Integral, 0, None, closed="left")],
-            "n_subsample": [Interval(Integral, 1, None, closed="left")],
-            "max_iter_fit": [Interval(Integral, 0, None, closed="left")],
+            "n_subsample": [Interval(Integral, 0, None, closed="left")],
+            "max_iter": [Interval(Integral, 0, None, closed="left")],
             "tol": [Interval(Real, 0, 1, closed="both")],
             "window_size": [Interval(Integral, 2, None, closed="left")],
-            "n_samples_summary": [Interval(Integral, 0, None, closed="left")],
             "verbose": ["verbose"],
         },
         prefer_skip_nested_validation=True,
@@ -189,10 +186,9 @@ class MultiStateJointModel(BaseEstimator, FitMixin, PredictMixin):
         target_accept_rate: float = 0.44,
         n_warmup: int = 100,
         n_subsample: int = 10,
-        max_iter_fit: int = 1000,
+        max_iter: int = 1000,
         tol: float = 0.1,
         window_size: int = 100,
-        n_samples_summary: int = 500,
         verbose: bool | int = True,
     ):
         r"""Initialize the multistate joint model with specified design and parameters.
@@ -223,15 +219,12 @@ class MultiStateJointModel(BaseEstimator, FitMixin, PredictMixin):
                 Defaults to 100.
             n_subsample (int, optional): Number of subsamples between MCMC updates.
                 Defaults to 10.
-            max_iter_fit (int, optional): Maximum number of iterations for stochastic
+            max_iter (int, optional): Maximum number of iterations for stochastic
                 gradient ascent. Defaults to 1000.
             tol (float, optional): Tolerance for :math:`R^2` convergence criterion.
                 Defaults to 0.1.
             window_size (int, optional): Window size for :math:`R^2` convergence
                 evaluation. Defaults to 100.
-            n_samples_summary (int, optional): Number of posterior samples used to
-                compute the Fisher Information Matrix and model selection criteria.
-                Defaults to 500.
             verbose (bool | int, optional): Flag to print progress during fitting and
                 prediction. Defaults to True.
         """
@@ -244,10 +237,9 @@ class MultiStateJointModel(BaseEstimator, FitMixin, PredictMixin):
             init_step_size=init_step_size,
             adapt_rate=adapt_rate,
             target_accept_rate=target_accept_rate,
-            max_iter_fit=max_iter_fit,
+            max_iter=max_iter,
             tol=tol,
             window_size=window_size,
-            n_samples_summary=n_samples_summary,
         )
 
         # Store model components
@@ -282,9 +274,13 @@ class MultiStateJointModel(BaseEstimator, FitMixin, PredictMixin):
         Returns:
             torch.Tensor: Vector of standard errors corresponding to each parameter.
         """
-        check_is_fitted(self, "fim_")
+        if self.fim_ is None:
+            raise ValueError(
+                "Fisher Information Matrix is not available. Call "
+                "compute_summary() first."
+            )
 
-        return cast(torch.Tensor, self.fim_).inverse().diag().sqrt()
+        return self.fim_.inverse().diag().sqrt()
 
     def summary(self):
         r"""Print a statistical summary of the fitted multistate joint model.
