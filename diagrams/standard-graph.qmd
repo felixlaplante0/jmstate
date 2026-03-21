@@ -1,0 +1,15 @@
+---
+format:
+  pdf:
+    documentclass: standalone
+---
+
+```{mermaid}
+stateDiagram-v2
+    direction LR
+
+    state "Healthy" as H
+    state "Dead" as D
+
+    H --> D
+```

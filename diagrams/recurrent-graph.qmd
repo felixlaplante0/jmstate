@@ -1,0 +1,14 @@
+---
+format:
+  pdf:
+    documentclass: standalone
+---
+
+```{mermaid}
+stateDiagram-v2
+    direction LR
+
+    state "Asthma Attack" as A
+
+    A --> A
+```

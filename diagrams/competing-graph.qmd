@@ -1,0 +1,15 @@
+---
+format:
+  pdf:
+    documentclass: standalone
+---
+
+```{mermaid}
+stateDiagram-v2
+    state "Normal" as N
+    state "Flood" as F
+    state "Forest Fire" as FF
+
+    N --> F
+    N --> FF
+```
