@@ -79,10 +79,7 @@ class MultiStateJointModel(BaseEstimator, FitMixin, PredictMixin):
     Fitting settings:
         - `optimizer`: Optimizer for stochastic gradient ascent. If `None`, fitting
           is disabled. Recommended: `torch.optim.Adam` with learning rate 0.01 to 0.5.
-        - `max_iter_fit`: Maximum iterations for gradient ascent.
-        - `n_samples_summary`: Number of samples used to compute the Fisher
-          Information Matrix and model selection criteria; higher values improve
-          accuracy.
+        - `max_iter`: Maximum iterations for gradient ascent.
         - `tol`: Tolerance for the :math:`R^2` convergence criterion.
         - `window_size`: Window size for :math:`R^2` convergence; default 100.
           This criterion is scale-agnostic and provides a local stationarity test.
@@ -109,11 +106,9 @@ class MultiStateJointModel(BaseEstimator, FitMixin, PredictMixin):
         target_accept_rate (float): Target acceptance probability.
         n_warmup (int): Number of warmup iterations per MCMC chain.
         n_subsample (int): Number of subsamples for MCMC iterations.
-        max_iter_fit (int): Maximum number of iterations for stochastic gradient ascent.
+        max_iter (int): Maximum number of iterations for stochastic gradient ascent.
         tol (float): Tolerance for :math:`R^2` convergence criterion.
         window_size (int): Window size for :math:`R^2` convergence evaluation.
-        n_samples_summary (int): Number of posterior samples for computing Fisher
-            Information and selection criteria.
         verbose (bool): Flag to print fitting and prediction progress.
         params_history_ (list[torch.Tensor]): History of parameter values as flattened
             tensors.
@@ -127,7 +122,7 @@ class MultiStateJointModel(BaseEstimator, FitMixin, PredictMixin):
         >>> optimizer = torch.optim.Adam(params.parameters(), lr=0.1)
         >>> model = MultiStateJointModel(design, params, optimizer)
         >>> model.fit(data)
-        >>> model.summary()
+        >>> model.compute_summary().summary()
     """
 
     design: ModelDesign
