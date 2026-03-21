@@ -11,5 +11,5 @@ Utils
    :recursive:
 
    build_buckets
+   plot_mcmc_diagnostics
    plot_params_history
-   plot_sampler_diagnostics
