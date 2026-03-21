@@ -154,7 +154,7 @@ metrics = model.fit(data)
 ```python
 from jmstate.utils import plot_mcmc_diagnostics, plot_params_history
 
-# Compute and rint summary statistics (nullity Wald statistics, p-values, AIC, BIC, etc.)
+# Compute and print summary statistics (nullity Wald statistics, p-values, AIC, BIC, etc.)
 model.compute_summary().summary()
 
 # Plot parameter history (stochastic optimization)...
