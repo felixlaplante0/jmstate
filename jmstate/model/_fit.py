@@ -1,10 +1,11 @@
 from math import ceil
+from numbers import Integral
 from typing import Any, Self
 from warnings import warn
 
 import torch
 from sklearn.base import check_is_fitted  # type: ignore
-from sklearn.utils._param_validation import validate_params  # type: ignore
+from sklearn.utils._param_validation import Interval, validate_params  # type: ignore
 from torch import nn
 from torch.func import jacfwd  # type: ignore
 from torch.nn.utils import parameters_to_vector
@@ -235,6 +236,12 @@ class FitMixin(PriorMixin, LongitudinalMixin, HazardMixin, MCMCMixin, nn.Module)
 
         return self
 
+    @validate_params(
+        {
+            "n_samples": [Interval(Integral, 1, None, closed="left")],
+        },
+        prefer_skip_nested_validation=True,
+    )
     def compute_summary(self, n_samples: int = 500) -> Self:
         r"""Computes summary statistics for the fitted model.
 
