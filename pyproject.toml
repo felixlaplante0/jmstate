@@ -4,7 +4,7 @@ description = "Joint modeling with automatic differentiation"
 readme = "README.md"
 urls = { "Source" = "https://github.com/felixlaplante/jmstate" }
 authors = [{ name = "Félix Laplante" }]
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = ["numpy", "torch", "matplotlib", "scikit-learn", "rich", "tqdm"]
 dynamic = ["version"]
 classifiers = [
