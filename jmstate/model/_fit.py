@@ -324,6 +324,11 @@ class FitMixin(PriorMixin, LongitudinalMixin, HazardMixin, MCMCMixin, nn.Module)
 
         self.loglik_ = logpdf + entropy
         self.aic_ = -2 * self.loglik_ + 2 * self.params.numel()
-        self.bic_ = -2 * self.loglik_ + torch.logdet(self.fim_).item()
+        fim_sign, fim_logdet = torch.linalg.slogdet(self.fim_)
+        self.bic_ = (
+            -2 * self.loglik_ + fim_logdet.item()
+            if fim_sign > 0 and torch.isfinite(fim_logdet)
+            else None
+        )
 
         return self

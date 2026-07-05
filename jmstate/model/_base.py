@@ -1,6 +1,7 @@
 from bisect import bisect_left
 from numbers import Integral, Real
 from typing import Final
+from warnings import warn
 
 import torch
 from rich.console import Console, Group
@@ -275,6 +276,14 @@ class MultiStateJointModel(BaseEstimator, FitMixin, PredictMixin):
                 "compute_summary() first."
             )
 
+        if torch.linalg.matrix_rank(self.fim_) < self.fim_.size(0):
+            warn(
+                "The Fisher information matrix is singular; standard errors are "
+                "unavailable.",
+                stacklevel=2,
+            )
+            return torch.full((self.fim_.size(0),), torch.nan)
+
         return self.fim_.inverse().diag().sqrt()
 
     def summary(self):
@@ -308,9 +317,13 @@ class MultiStateJointModel(BaseEstimator, FitMixin, PredictMixin):
         i = 0
         for name, val in self.params.named_parameters():
             for j in range(val.numel()):
-                code = SIGNIFICANCE_CODES[
-                    bisect_left(SIGNIFICANCE_LEVELS, pvalues[i].item())
-                ]
+                code = (
+                    SIGNIFICANCE_CODES[
+                        bisect_left(SIGNIFICANCE_LEVELS, pvalues[i].item())
+                    ]
+                    if torch.isfinite(pvalues[i])
+                    else ""
+                )
 
                 table.add_row(
                     f"{name}[{j}]",
@@ -322,10 +335,9 @@ class MultiStateJointModel(BaseEstimator, FitMixin, PredictMixin):
                 )
                 i += 1
 
+        bic = "unavailable" if self.bic_ is None else f"{self.bic_:.3f}"
         criteria = Text(
-            f"Log-likelihood: {self.loglik_:.3f}\n"
-            f"AIC: {self.aic_:.3f}\n"
-            f"BIC: {self.bic_:.3f}",
+            f"Log-likelihood: {self.loglik_:.3f}\nAIC: {self.aic_:.3f}\nBIC: {bic}",
             style="bold cyan",
         )
 
