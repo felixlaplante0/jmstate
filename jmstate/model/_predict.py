@@ -119,12 +119,14 @@ class PredictMixin(HazardMixin, MCMCMixin):
         n_iter = ceil(n_samples / self.n_chains)
 
         if double_monte_carlo:
-            init_params = parameters_to_vector(self.params.parameters()).detach().clone()
+            init_params = (
+                parameters_to_vector(self.params.parameters()).detach().clone()
+            )
             sampled_params = self._sample_params(n_iter)
 
-        sampler = None
+        sampler = self._init_sampler(data)
         if not double_monte_carlo:
-            sampler = self._init_sampler(data).run(self.n_warmup)
+            sampler.run(self.n_warmup)
 
         try:
             for i in trange(
@@ -136,7 +138,6 @@ class PredictMixin(HazardMixin, MCMCMixin):
                     vector_to_parameters(sampled_params[i], self.params.parameters())  # type: ignore
                     sampler = self._init_sampler(data).run(self.n_warmup)
 
-                assert sampler is not None
                 indiv_params = self.design.indiv_params_fn(
                     self.params.fixed_effects, data.x, sampler.b
                 )
@@ -227,12 +228,14 @@ class PredictMixin(HazardMixin, MCMCMixin):
         n_iter = ceil(n_samples / self.n_chains)
 
         if double_monte_carlo:
-            init_params = parameters_to_vector(self.params.parameters()).detach().clone()
+            init_params = (
+                parameters_to_vector(self.params.parameters()).detach().clone()
+            )
             sampled_params = self._sample_params(n_iter)
 
-        sampler = None
+        sampler = self._init_sampler(data)
         if not double_monte_carlo:
-            sampler = self._init_sampler(data).run(self.n_warmup)
+            sampler.run(self.n_warmup)
 
         try:
             for i in trange(
@@ -244,7 +247,6 @@ class PredictMixin(HazardMixin, MCMCMixin):
                     vector_to_parameters(sampled_params[i], self.params.parameters())  # type: ignore
                     sampler = self._init_sampler(data).run(self.n_warmup)
 
-                assert sampler is not None
                 indiv_params = self.design.indiv_params_fn(
                     self.params.fixed_effects, data.x, sampler.b
                 )
@@ -332,12 +334,14 @@ class PredictMixin(HazardMixin, MCMCMixin):
         n_iter = ceil(n_samples / self.n_chains)
 
         if double_monte_carlo:
-            init_params = parameters_to_vector(self.params.parameters()).detach().clone()
+            init_params = (
+                parameters_to_vector(self.params.parameters()).detach().clone()
+            )
             sampled_params = self._sample_params(n_iter)
 
-        sampler = None
+        sampler = self._init_sampler(data)
         if not double_monte_carlo:
-            sampler = self._init_sampler(data).run(self.n_warmup)
+            sampler.run(self.n_warmup)
 
         try:
             for i in trange(
@@ -349,7 +353,6 @@ class PredictMixin(HazardMixin, MCMCMixin):
                     vector_to_parameters(sampled_params[i], self.params.parameters())  # type: ignore
                     sampler = self._init_sampler(data).run(self.n_warmup)
 
-                assert sampler is not None
                 # Sample trajectories, not possible to vectorize fully
                 indiv_params = self.design.indiv_params_fn(
                     self.params.fixed_effects, data.x, sampler.b
