@@ -119,31 +119,35 @@ class PredictMixin(HazardMixin, MCMCMixin):
         n_iter = ceil(n_samples / self.n_chains)
 
         if double_monte_carlo:
-            init_params = parameters_to_vector(self.params.parameters())
+            init_params = parameters_to_vector(self.params.parameters()).detach().clone()
             sampled_params = self._sample_params(n_iter)
 
-        # Initialize MCMC
-        sampler = self._init_sampler(data).run(self.n_warmup)
+        sampler = None
+        if not double_monte_carlo:
+            sampler = self._init_sampler(data).run(self.n_warmup)
 
-        for i in trange(
-            n_iter,
-            desc="Predicting longitudinal values",
-            disable=not bool(self.verbose),
-        ):
+        try:
+            for i in trange(
+                n_iter,
+                desc="Predicting longitudinal values",
+                disable=not bool(self.verbose),
+            ):
+                if double_monte_carlo:
+                    vector_to_parameters(sampled_params[i], self.params.parameters())  # type: ignore
+                    sampler = self._init_sampler(data).run(self.n_warmup)
+
+                assert sampler is not None
+                indiv_params = self.design.indiv_params_fn(
+                    self.params.fixed_effects, data.x, sampler.b
+                )
+                y = self.design.regression_fn(u, indiv_params)
+                y_pred.extend(y[j] for j in range(y.size(0)))
+
+                if not double_monte_carlo:
+                    sampler.run(self.n_subsample)
+        finally:
             if double_monte_carlo:
-                vector_to_parameters(sampled_params[i], self.params.parameters())  # type: ignore
-
-            indiv_params = self.design.indiv_params_fn(
-                self.params.fixed_effects, data.x, sampler.b
-            )
-            y = self.design.regression_fn(u, indiv_params)
-            y_pred.extend(y[i] for i in range(y.size(0)))
-
-            sampler.run(self.n_subsample)
-
-        # Restore parameters
-        if double_monte_carlo:
-            vector_to_parameters(init_params, self.params.parameters())  # type: ignore
+                vector_to_parameters(init_params, self.params.parameters())  # type: ignore
 
         return torch.stack(y_pred[:n_samples])
 
@@ -223,31 +227,40 @@ class PredictMixin(HazardMixin, MCMCMixin):
         n_iter = ceil(n_samples / self.n_chains)
 
         if double_monte_carlo:
-            init_params = parameters_to_vector(self.params.parameters())
+            init_params = parameters_to_vector(self.params.parameters()).detach().clone()
             sampled_params = self._sample_params(n_iter)
 
-        # Initialize MCMC
-        sampler = self._init_sampler(data).run(self.n_warmup)
+        sampler = None
+        if not double_monte_carlo:
+            sampler = self._init_sampler(data).run(self.n_warmup)
 
-        for i in trange(
-            n_iter,
-            desc="Predicting survival log probabilities",
-            disable=not bool(self.verbose),
-        ):
+        try:
+            for i in trange(
+                n_iter,
+                desc="Predicting survival log probabilities",
+                disable=not bool(self.verbose),
+            ):
+                if double_monte_carlo:
+                    vector_to_parameters(sampled_params[i], self.params.parameters())  # type: ignore
+                    sampler = self._init_sampler(data).run(self.n_warmup)
+
+                assert sampler is not None
+                indiv_params = self.design.indiv_params_fn(
+                    self.params.fixed_effects, data.x, sampler.b
+                )
+                sample_data = SampleData(
+                    data.x, data.trajectories, indiv_params, data.c
+                )
+                surv_logps = self.compute_surv_logps(sample_data, u)
+                surv_logps_pred.extend(
+                    surv_logps[j] for j in range(surv_logps.size(0))
+                )
+
+                if not double_monte_carlo:
+                    sampler.run(self.n_subsample)
+        finally:
             if double_monte_carlo:
-                vector_to_parameters(sampled_params[i], self.params.parameters())  # type: ignore
-
-            indiv_params = self.design.indiv_params_fn(
-                self.params.fixed_effects, data.x, sampler.b
-            )
-            sample_data = SampleData(data.x, data.trajectories, indiv_params, data.c)
-            surv_logps = self.compute_surv_logps(sample_data, u)
-            surv_logps_pred.extend(surv_logps[i] for i in range(surv_logps.size(0)))
-
-            sampler.run(self.n_subsample)
-
-        if double_monte_carlo:
-            vector_to_parameters(init_params, self.params.parameters())  # type: ignore
+                vector_to_parameters(init_params, self.params.parameters())  # type: ignore
 
         return torch.stack(surv_logps_pred[:n_samples])
 
@@ -319,35 +332,42 @@ class PredictMixin(HazardMixin, MCMCMixin):
         n_iter = ceil(n_samples / self.n_chains)
 
         if double_monte_carlo:
-            init_params = parameters_to_vector(self.params.parameters())
+            init_params = parameters_to_vector(self.params.parameters()).detach().clone()
             sampled_params = self._sample_params(n_iter)
 
-        # Initialize MCMC
-        sampler = self._init_sampler(data).run(self.n_warmup)
+        sampler = None
+        if not double_monte_carlo:
+            sampler = self._init_sampler(data).run(self.n_warmup)
 
-        for i in trange(
-            n_iter,
-            desc="Predicting trajectories",
-            disable=not bool(self.verbose),
-        ):
+        try:
+            for i in trange(
+                n_iter,
+                desc="Predicting trajectories",
+                disable=not bool(self.verbose),
+            ):
+                if double_monte_carlo:
+                    vector_to_parameters(sampled_params[i], self.params.parameters())  # type: ignore
+                    sampler = self._init_sampler(data).run(self.n_warmup)
+
+                assert sampler is not None
+                # Sample trajectories, not possible to vectorize fully
+                indiv_params = self.design.indiv_params_fn(
+                    self.params.fixed_effects, data.x, sampler.b
+                )
+                for j in range(indiv_params.size(0)):
+                    sample_data = SampleDataUnchecked(
+                        data.x, data.trajectories, indiv_params[j], data.c
+                    )
+                    trajectories_pred.append(
+                        self.sample_trajectories(
+                            sample_data, c, max_length=max_length
+                        )
+                    )
+
+                if not double_monte_carlo:
+                    sampler.run(self.n_subsample)
+        finally:
             if double_monte_carlo:
-                vector_to_parameters(sampled_params[i], self.params.parameters())  # type: ignore
-
-            # Sample trajectories, not possible to vectorize fully
-            indiv_params = self.design.indiv_params_fn(
-                self.params.fixed_effects, data.x, sampler.b
-            )
-            for j in range(indiv_params.size(0)):
-                sample_data = SampleDataUnchecked(
-                    data.x, data.trajectories, indiv_params[j], data.c
-                )
-                trajectories_pred.append(
-                    self.sample_trajectories(sample_data, c, max_length=max_length)
-                )
-
-            sampler.run(self.n_subsample)
-
-        if double_monte_carlo:
-            vector_to_parameters(init_params, self.params.parameters())  # type: ignore
+                vector_to_parameters(init_params, self.params.parameters())  # type: ignore
 
         return trajectories_pred[:n_samples]
