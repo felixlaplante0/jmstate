@@ -232,7 +232,7 @@ class HazardMixin:
 
         # Compute the log probabilities summing over transitions
         nlogps = torch.zeros(*indiv_params.shape[:-1], u.size(1))
-        for key, (idxs, t0) in buckets.items():
+        for key, (idxs, t0, _t1) in buckets.items():
             # Compute negative log survival and scatter add
             t0 = t0 if t_cond is None else t_cond[idxs]  # noqa: PLW2901
             alts_logliks = self._cum_hazard(

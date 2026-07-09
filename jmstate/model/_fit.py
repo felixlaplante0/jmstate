@@ -5,6 +5,7 @@ from warnings import warn
 
 import torch
 from sklearn.base import check_is_fitted  # type: ignore
+from sklearn.exceptions import ConvergenceWarning  # type: ignore
 from sklearn.utils._param_validation import Interval, validate_params  # type: ignore
 from torch import nn
 from torch.func import jacfwd  # type: ignore
@@ -111,6 +112,20 @@ class FitMixin(PriorMixin, LongitudinalMixin, HazardMixin, MCMCMixin, nn.Module)
         Y = torch.stack(self.params_history_[-self.window_size :])
         return r2(Y).mean().item() < self.tol
 
+    def _warn_not_converged(self, *, stacklevel: int) -> None:
+        """Emits a convergence warning for an exhausted optimization budget.
+
+        Args:
+            stacklevel (int): Warning stack level passed to `warn`.
+        """
+        warn(
+            "Model may not have converged in the specified number of iterations. "
+            "Try to increase `max_iter`, `tol`, or `window_size`. Also try "
+            "to increase `n_subsample` or `n_warmup` for better MCMC mixing.",
+            category=ConvergenceWarning,
+            stacklevel=stacklevel,
+        )
+
     def _fit(self, data: ModelDataUnchecked, sampler: MetropolisWithinGibbsSampler):
         """Fits the model using the optimizer and the sampler.
 
@@ -133,7 +148,8 @@ class FitMixin(PriorMixin, LongitudinalMixin, HazardMixin, MCMCMixin, nn.Module)
             loss.backward()  # type: ignore
             return loss.item()
 
-        for i in trange(  # noqa: B007
+        converged = False
+        for _ in trange(
             self.max_iter,
             desc="Fitting joint model",
             disable=not bool(self.verbose),
@@ -147,15 +163,11 @@ class FitMixin(PriorMixin, LongitudinalMixin, HazardMixin, MCMCMixin, nn.Module)
             sampler.reset().run(self.n_subsample)
 
             if self._is_converged():
+                converged = True
                 break
 
-        if i == self.max_iter - 1:  # type: ignore
-            warn(
-                "Model may not have converged in the specified number of iterations. "
-                "Try to increase `max_iter`, `tol`, or `window_size`. Also try "
-                "to increase `n_subsample` or `n_warmup` for better MCMC mixing.",
-                stacklevel=2,
-            )
+        if not converged:
+            self._warn_not_converged(stacklevel=2)
 
     @validate_params(
         {
@@ -200,17 +212,14 @@ class FitMixin(PriorMixin, LongitudinalMixin, HazardMixin, MCMCMixin, nn.Module)
         # Initialize MCMC
         self.sampler = self._init_sampler(data).run(self.n_warmup)
 
-        if self.optimizer is None:
-            raise ValueError("Optimizer is not initialized.")
-
         def closure():
             self.optimizer.zero_grad()  # type: ignore
             loss = -self.sampler.logpdfs_fn(self.sampler.b).mean()  # type: ignore
             loss.backward()  # type: ignore
             return loss.item()
 
-        i = 0
-        for i in trange(  # noqa: B007
+        converged = False
+        for _ in trange(
             self.max_iter,
             desc="Fitting joint model",
             disable=not bool(self.verbose),
@@ -224,15 +233,11 @@ class FitMixin(PriorMixin, LongitudinalMixin, HazardMixin, MCMCMixin, nn.Module)
             self.sampler.reset().run(self.n_subsample)
 
             if self._is_converged():
+                converged = True
                 break
 
-        if i == self.max_iter - 1:
-            warn(
-                "Model may not have converged in the specified number of iterations. "
-                "Try to increase `max_iter`, `tol`, or `window_size`. Also try "
-                "to increase `n_subsample` or `n_warmup` for better MCMC mixing.",
-                stacklevel=2,
-            )
+        if self.max_iter > 0 and not converged:
+            self._warn_not_converged(stacklevel=3)
 
         return self
 

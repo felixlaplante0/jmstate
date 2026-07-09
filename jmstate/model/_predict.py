@@ -254,9 +254,7 @@ class PredictMixin(HazardMixin, MCMCMixin):
                     data.x, data.trajectories, indiv_params, data.c
                 )
                 surv_logps = self.compute_surv_logps(sample_data, u)
-                surv_logps_pred.extend(
-                    surv_logps[j] for j in range(surv_logps.size(0))
-                )
+                surv_logps_pred.extend(surv_logps[j] for j in range(surv_logps.size(0)))
 
                 if not double_monte_carlo:
                     sampler.run(self.n_subsample)
@@ -362,9 +360,7 @@ class PredictMixin(HazardMixin, MCMCMixin):
                         data.x, data.trajectories, indiv_params[j], data.c
                     )
                     trajectories_pred.append(
-                        self.sample_trajectories(
-                            sample_data, c, max_length=max_length
-                        )
+                        self.sample_trajectories(sample_data, c, max_length=max_length)
                     )
 
                 if not double_monte_carlo:

@@ -1,6 +1,6 @@
 from bisect import bisect_left
 from numbers import Integral, Real
-from typing import Final
+from typing import ClassVar, Final, Self
 from warnings import warn
 
 import torch
@@ -10,11 +10,11 @@ from rich.rule import Rule
 from rich.table import Table
 from rich.text import Text
 from sklearn.base import BaseEstimator  # type: ignore
-from sklearn.utils._param_validation import Interval, validate_params  # type: ignore
+from sklearn.utils._param_validation import Interval  # type: ignore
 from torch.distributions import Normal
 from torch.nn.utils import parameters_to_vector
 
-from ..types._data import ModelDesign
+from ..types._data import ModelData, ModelDesign
 from ..types._parameters import ModelParameters
 from ._fit import FitMixin
 from ._predict import PredictMixin
@@ -148,26 +148,24 @@ class MultiStateJointModel(BaseEstimator, FitMixin, PredictMixin):
     aic_: float | None
     bic_: float | None
 
-    @validate_params(
-        {
-            "design": [ModelDesign],
-            "params": [ModelParameters],
-            "optimizer": [torch.optim.Optimizer, None],
-            "n_quad": [Interval(Integral, 1, None, closed="left")],
-            "n_bisect": [Interval(Integral, 1, None, closed="left")],
-            "n_chains": [Interval(Integral, 1, None, closed="left")],
-            "init_step_size": [Interval(Real, 0, None, closed="neither")],
-            "adapt_rate": [Interval(Real, 0, None, closed="left")],
-            "target_accept_rate": [Interval(Real, 0, 1, closed="neither")],
-            "n_warmup": [Interval(Integral, 0, None, closed="left")],
-            "n_subsample": [Interval(Integral, 0, None, closed="left")],
-            "max_iter": [Interval(Integral, 0, None, closed="left")],
-            "tol": [Interval(Real, 0, 1, closed="both")],
-            "window_size": [Interval(Integral, 2, None, closed="left")],
-            "verbose": ["verbose"],
-        },
-        prefer_skip_nested_validation=True,
-    )
+    _parameter_constraints: ClassVar[dict] = {
+        "design": [ModelDesign],
+        "params": [ModelParameters],
+        "optimizer": [torch.optim.Optimizer, None],
+        "n_quad": [Interval(Integral, 1, None, closed="left")],
+        "n_bisect": [Interval(Integral, 1, None, closed="left")],
+        "n_chains": [Interval(Integral, 1, None, closed="left")],
+        "init_step_size": [Interval(Real, 0, None, closed="neither")],
+        "adapt_rate": [Interval(Real, 0, None, closed="left")],
+        "target_accept_rate": [Interval(Real, 0, 1, closed="neither")],
+        "n_warmup": [Interval(Integral, 0, None, closed="left")],
+        "n_subsample": [Interval(Integral, 0, None, closed="left")],
+        "max_iter": [Interval(Integral, 0, None, closed="left")],
+        "tol": [Interval(Real, 0, 1, closed="both")],
+        "window_size": [Interval(Integral, 2, None, closed="left")],
+        "verbose": ["verbose"],
+    }
+
     def __init__(
         self,
         design: ModelDesign,
@@ -249,6 +247,24 @@ class MultiStateJointModel(BaseEstimator, FitMixin, PredictMixin):
         self.loglik_ = None
         self.aic_ = None
         self.bic_ = None
+
+    def fit(self, data: ModelData) -> Self:
+        """Fits the model after validating fit-time configuration.
+
+        Args:
+            data (ModelData): Dataset used for model fitting.
+
+        Raises:
+            ValueError: If the optimizer is not initialized.
+
+        Returns:
+            Self: The fitted model instance.
+        """
+        self._validate_params()
+        if self.optimizer is None:
+            raise ValueError("Optimizer is not initialized.")
+
+        return super().fit(data)
 
     @property
     def stderr(self) -> torch.Tensor:

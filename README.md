@@ -1,5 +1,7 @@
 # jmstate
 
+[![codecov](https://codecov.io/gh/felixlaplante0/jmstate/graph/badge.svg)](https://codecov.io/gh/felixlaplante0/jmstate)
+
 **jmstate** is a Python package for **nonlinear multi-state joint modeling** of longitudinal and time-to-event data. Built on [PyTorch](https://pytorch.org/), it enables flexible specification of regression and link functions — including neural networks — while still offering built-in parametric baseline hazards and utilities for inference and prediction.
 
 The package implements the methodology from:
@@ -12,10 +14,48 @@ The package implements the methodology from:
 ## Installation
 
 ```bash
-pip install jmstate
+python -m pip install jmstate
 ```
 
-**Requirements:** Python ≥ 3.10, PyTorch, scikit-learn, NumPy, Matplotlib, rich, tqdm.
+**Requirements:** Python 3.11 or later, PyTorch, scikit-learn, NumPy, Matplotlib, rich,
+tqdm.
+
+### Data integrity
+
+The committed PAQUID dataset is the canonical reproduction input. Verify it before
+running an analysis:
+
+```bash
+cd data
+sha256sum --check SHA256SUMS
+```
+
+The PAQUID file is the canonical reproduction input in this repository. Use it subject
+to its original data-access and reuse terms.
+
+## Development and reproduction
+
+Install the current checkout with its test dependencies:
+
+```bash
+python -m pip install -e ".[test]"
+```
+
+Run the test suite and collect coverage from the repository root:
+
+```bash
+python -m pytest -v --cov=jmstate --cov-report=term-missing --cov-report=xml
+```
+
+The exploratory analyses used for the project are retained as notebooks in `scripts/`.
+They use the committed PAQUID data and write their results to the repository's existing
+results and figures directories.
+
+## Citation
+
+If you use `jmstate`, please cite [*A General Framework for Joint Multi-State
+Models*](https://arxiv.org/abs/2510.07128) by F\'elix Laplante and Christophe Ambroise
+(2025).
 
 ---
 
