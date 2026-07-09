@@ -40,21 +40,21 @@ SIGNIFICANCE_CODES: Final[tuple[str, ...]] = (
 class MultiStateJointModel(BaseEstimator, FitMixin, PredictMixin):
     r"""Nonlinear multistate joint model for longitudinal and survival data.
 
-    This class generalizes both linear and standard joint models to accommodate
-    multiple states under a semi-Markov assumption. The model is fully specified
-    by a `ModelDesign` object, which defines longitudinal and hazard functions, and
-    a `ModelParameters` object, which contains the associated (modifiable) parameters.
+    This class generalizes both linear and standard joint models to accommodate multiple
+    states under a semi-Markov assumption. The model is fully specified by a
+    `ModelDesign` object, which defines longitudinal and hazard functions, and a
+    `ModelParameters` object, which contains the associated (modifiable) parameters.
     Parameters may be shared across functions as specified in the model design. The
-    `ModelDesign` is fixed at initialization, while `ModelParameters` are updated
-    in place during fitting.
+    `ModelDesign` is fixed at initialization, while `ModelParameters` are updated in
+    place during fitting.
 
     Model fitting is performed using a stochastic gradient ascent algorithm, and
     parameter sampling is handled by a Metropolis-Within-Gibbs MCMC procedure. The
     default settings are based on commonly accepted values, and the step sizes are
     adapted component-wise dynamically based on the acceptance rate.
 
-    Dynamic prediction is supported via the prediction methods in `PredictMixin`,
-    which allow both single and double Monte Carlo integration.
+    Dynamic prediction is supported via the prediction methods in `PredictMixin`, which
+    allow both single and double Monte Carlo integration.
 
     Design settings:
         - `design`: The model specification defining the individual parameters,
@@ -74,8 +74,8 @@ class MultiStateJointModel(BaseEstimator, FitMixin, PredictMixin):
         - `target_accept_rate`: Target mean acceptance probability.
         - `n_warmup`: Number of warmup iterations per chain.
         - `n_subsample`: Number of subsamples between predictions; higher values
-          reduce autocorrelation but increase computation time. A value of one means
-          no subsampling. This value may be very sensitive.
+          reduce autocorrelation but increase computation time. A value of one means no
+          subsampling. This value may be very sensitive.
 
     Fitting settings:
         - `optimizer`: Optimizer for stochastic gradient ascent. If `None`, fitting
@@ -88,8 +88,8 @@ class MultiStateJointModel(BaseEstimator, FitMixin, PredictMixin):
     Printing and visualization:
         - `verbose`: Whether to print progress during fitting and prediction.
         - After fitting, `summary` and `plot_params_history` (from `jmstate.utils`)
-          can be used to display p-values, log-likelihood, AIC, BIC, and the
-          evolution of parameters over iterations.
+          can be used to display p-values, log-likelihood, AIC, BIC, and the evolution
+          of parameters over iterations.
 
     Attributes:
         design (ModelDesign): The model specification defining the individual

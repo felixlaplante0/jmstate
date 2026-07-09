@@ -89,9 +89,9 @@ class FitMixin(PriorMixin, LongitudinalMixin, HazardMixin, MCMCMixin, nn.Module)
     def _is_converged(self) -> bool:
         """Checks if the optimizer has converged.
 
-        This is based on a linear regression of the parameters with the current
-        number of iterations. If the mean of :math:`R^2` is below a threshold,
-        the optimizer is considered to have converged.
+        This is based on a linear regression of the parameters with the current number
+        of iterations. If the mean of :math:`R^2` is below a threshold, the optimizer is
+        considered to have converged.
 
         Returns:
             bool: True if the optimizer has converged, False otherwise.

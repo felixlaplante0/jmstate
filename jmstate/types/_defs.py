@@ -28,8 +28,8 @@ class LogBaseHazardFn(ABC, nn.Module):
         of shape :math:`(n, m)` matching the number of rows in `t0`.
 
     Notes:
-        The outputs are in log scale and can be directly used in likelihood
-        computations for multistate models.
+        The outputs are in log scale and can be directly used in likelihood computations
+        for multistate models.
     """
 
     @abstractmethod
@@ -39,8 +39,8 @@ class LogBaseHazardFn(ABC, nn.Module):
 class IndividualParametersFn(Protocol):
     r"""Protocol defining the individual parameters function.
 
-    This function maps population-level parameters, covariates, and random effects
-    to individual-specific parameters used in a multistate model.
+    This function maps population-level parameters, covariates, and random effects to
+    individual-specific parameters used in a multistate model.
 
     Tensor input conventions:
 
@@ -79,8 +79,8 @@ class RegressionFn(Protocol):
 
     This function maps evaluation times and individual-specific parameters to predicted
     response values. It must support both 1D and 2D time inputs and individual
-    parameters of order 2 or 3, returning either 3D or 4D tensors depending on the
-    model design.
+    parameters of order 2 or 3, returning either 3D or 4D tensors depending on the model
+    design.
 
     Tensor input conventions:
 
@@ -90,8 +90,8 @@ class RegressionFn(Protocol):
         - a 1D tensor of shape :math:`(m,)` when all individuals share the same
           measurement times.
     - `indiv_params` represents the individual-specific parameters. It is expected
-      to have shape :math:`(n, l)` or :math:`(n_chains, n, l)` where :math:`n`
-      is the number of individuals and :math:`l` is the number of parameters.
+      to have shape :math:`(n, l)` or :math:`(n_chains, n, l)` where :math:`n` is the
+      number of individuals and :math:`l` is the number of parameters.
 
     Tensor output conventions:
 
@@ -105,8 +105,8 @@ class RegressionFn(Protocol):
 
     Args:
         t (torch.Tensor): Evaluation times of shape :math:`(n, m)` or :math:`(m,)`.
-        indiv_params (torch.Tensor): Individual parameters of shape 2D :math:`(n, l)`
-            or 3D :math:`(n_chains, n, l)`.
+        indiv_params (torch.Tensor): Individual parameters of shape 2D :math:`(n, l)` or
+            3D :math:`(n_chains, n, l)`.
 
     Returns:
         torch.Tensor: Predicted response values of shape consistent with `(n, m, d)` or
@@ -137,8 +137,8 @@ class LinkFn(Protocol):
         - a 1D tensor of shape :math:`(m,)` when all individuals share the same
           measurement times.
     - `indiv_params` represents the individual-specific parameters. It is expected
-      to have shape :math:`(n, l)` or :math:`(n_chains, n, l)` where :math:`n`
-      is the number of individuals and :math:`l` is the number of parameters.
+      to have shape :math:`(n, l)` or :math:`(n_chains, n, l)` where :math:`n` is the
+      number of individuals and :math:`l` is the number of parameters.
 
     Tensor output conventions:
 
@@ -152,8 +152,8 @@ class LinkFn(Protocol):
 
     Args:
         t (torch.Tensor): Evaluation times of shape :math:`(n, m)` or :math:`(m,)`.
-        indiv_params (torch.Tensor): Individual parameters of shape 2D :math:`(n, l)`
-            or 3D :math:`(n_chains, n, l)`.
+        indiv_params (torch.Tensor): Individual parameters of shape 2D :math:`(n, l)` or
+            3D :math:`(n_chains, n, l)`.
 
     Returns:
         torch.Tensor: Transformed outputs consistent with shapes `(n, m, d)` or

@@ -19,10 +19,10 @@ from ..utils._linalg import flat_from_log_cholesky, log_cholesky_from_flat
 class PrecisionParameters(BaseEstimator, nn.Module):
     r"""`nn.Module` encapsulating precision matrix parameters.
 
-    This class provides three types of precision matrix parametrization: full,
-    diagonal, and spherical (scalar). The default is full matrix parametrization.
-    Precision matrices are internally represented using the **log-Cholesky
-    parametrization** of the inverse covariance (precision) matrix. Formally, let
+    This class provides three types of precision matrix parametrization: full, diagonal,
+    and spherical (scalar). The default is full matrix parametrization. Precision
+    matrices are internally represented using the **log-Cholesky parametrization** of
+    the inverse covariance (precision) matrix. Formally, let
     :math:`P = \Sigma^{-1}` be the precision matrix and :math:`L` its Cholesky factor
     with positive diagonal elements. The log-Cholesky representation :math:`\tilde{L}`
     is defined by:
@@ -44,11 +44,11 @@ class PrecisionParameters(BaseEstimator, nn.Module):
     set to `'full'`, `'diag'`, or `'spherical'`.
 
     Attributes:
-        flat (torch.Tensor): Flat representation of the precision matrix suitable
-            for optimization.
+        flat (torch.Tensor): Flat representation of the precision matrix suitable for
+            optimization.
         dim (int): Dimension of the precision matrix.
-        precision_type (str): Type of parametrization, one of `'full'`, `'diag'`,
-            or `'spherical'`.
+        precision_type (str): Type of parametrization, one of `'full'`, `'diag'`, or
+            `'spherical'`.
 
     Examples:
         >>> random_prec = PrecisionParameters.from_covariance(torch.eye(3), "diag")
@@ -187,8 +187,8 @@ class ModelParameters(BaseEstimator, nn.Module):
 
     Link and covariate coefficients:
         - `link_coefs` and `x_coefs` are dictionaries keyed by `(from_state,
-          to_state)` tuples, representing linear coefficients for links and
-          covariates, respectively.
+          to_state)` tuples, representing linear coefficients for links and covariates,
+          respectively.
 
     Attributes:
         fixed_effects (torch.Tensor): Fixed population-level parameters.

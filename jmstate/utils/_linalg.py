@@ -37,8 +37,7 @@ def log_cholesky_from_flat(
     Args:
         flat (torch.Tensor): The flat tensor parameter.
         dim (int): The dimension of the matrix.
-        precision_type (str): The precision type, `'full'`, `'diag'`, or
-            `'spherical'`.
+        precision_type (str): The precision type, `'full'`, `'diag'`, or `'spherical'`.
 
     Raises:
         ValueError: If the precision type is not valid.
@@ -65,8 +64,7 @@ def flat_from_log_cholesky(L: torch.Tensor, precision_type: str) -> torch.Tensor
 
     Args:
         L (torch.Tensor): The square lower triangular matrix parameter.
-        precision_type (str): The precision type, `'full'`, `'diag'`, or
-            `'spherical'`.
+        precision_type (str): The precision type, `'full'`, `'diag'`, or `'spherical'`.
 
     Raises:
         ValueError: If the precision type is not valid.

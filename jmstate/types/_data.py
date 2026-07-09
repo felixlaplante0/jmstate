@@ -151,13 +151,13 @@ class ModelData(BaseEstimator):
         x (torch.Tensor): Fixed covariate matrix of shape `(n, p)`, where `n` is the
             number of individuals and `p` the number of covariates.
         t (torch.Tensor): Measurement times. Either a 1D tensor of shape `(m,)` when
-            times are shared across individuals, or a 2D tensor of shape `(n, m)`
-            when individuals have distinct time grids. Padding with NaNs may be
-            used when required.
+            times are shared across individuals, or a 2D tensor of shape `(n, m)` when
+            individuals have distinct time grids. Padding with NaNs may be used when
+            required.
         y (torch.Tensor): Longitudinal measurements of shape `(n, m, d)`, where `n` is
             the number of individuals, `m` the maximum number of measurements per
-            individual, and `d` the observation dimension. Padding is performed
-            with NaNs when necessary.
+            individual, and `d` the observation dimension. Padding is performed with
+            NaNs when necessary.
         trajectories (list[Trajectory]): List of individual trajectories. Each
             `Trajectory` consists of a sequence of `(time, state)` tuples.
         c (torch.Tensor): Censoring times provided as a column vector. Each value must
@@ -165,8 +165,7 @@ class ModelData(BaseEstimator):
         valid_mask (torch.Tensor): Boolean mask indicating valid (non-padded)
             measurements.
         n_valid (torch.Tensor): Number of valid measurements per individual.
-        valid_t (torch.Tensor): Filtered tensor containing only valid measurement
-            times.
+        valid_t (torch.Tensor): Filtered tensor containing only valid measurement times.
         valid_y (torch.Tensor): Filtered tensor containing only valid measurements.
         buckets (dict[tuple[Any, Any], tuple[torch.Tensor, ...]]): Grouped trajectory
             data structures used for likelihood computation.
@@ -325,8 +324,8 @@ class SampleData(BaseEstimator):
             number of individuals and `p` the number of covariates.
         trajectories (list[Trajectory]): List of individual trajectories. Each
             `Trajectory` consists of a sequence of `(time, state)` tuples.
-        indiv_params (torch.Tensor): Individual parameters with the same number of
-            rows as there are trajectories. Use a matrix by default.
+        indiv_params (torch.Tensor): Individual parameters with the same number of rows
+            as there are trajectories. Use a matrix by default.
         t_cond (torch.Tensor | None): Optional conditioning times per individual. If
             None, the maximum observation time is used.
     """

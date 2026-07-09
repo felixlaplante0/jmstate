@@ -145,8 +145,7 @@ class Weibull(LogBaseHazardFn):
         Args:
             lmda (float): The scale parameter.
             k (float): The shape parameter.
-            clock_type (str, optional): The type of clock to use. Defaults to
-                "sojourn".
+            clock_type (str, optional): The type of clock to use. Defaults to "sojourn".
             frozen (bool, optional): Whether to freeze the parameters. Defaults to
                 `False`.
         """
@@ -195,8 +194,7 @@ class Weibull(LogBaseHazardFn):
 class Gompertz(LogBaseHazardFn):
     r"""Implements the Gompertz base hazard.
 
-    Gompertz base hazard is time dependent.
-    It is given by the formula:
+    Gompertz base hazard is time dependent. It is given by the formula:
 
     .. math::
         \lambda_0(t) = a \exp{bt}.
@@ -248,8 +246,7 @@ class Gompertz(LogBaseHazardFn):
         Args:
             a (float): The baseline hazard.
             b (float): The shape parameter.
-            clock_type (str, optional): The type of clock to use. Defaults to
-                "sojourn".
+            clock_type (str, optional): The type of clock to use. Defaults to "sojourn".
             frozen (bool, optional): Whether to freeze the parameters. Defaults to
                 `False`.
         """
@@ -288,8 +285,7 @@ class Gompertz(LogBaseHazardFn):
 class LogNormal(LogBaseHazardFn):
     r"""Implements the log normal base hazard.
 
-    Log normal base hazard is time dependent.
-    It is given by the formula:
+    Log normal base hazard is time dependent. It is given by the formula:
 
     .. math::
         \lambda_0(t) = \frac{\phi\left( \frac{\log t - \mu}{\sigma} \right)}{t \sigma
@@ -349,8 +345,7 @@ class LogNormal(LogBaseHazardFn):
         Args:
             mu (float): The log time mean.
             scale (float): The log time scale.
-            clock_type (str, optional): The type of clock to use. Defaults to
-                "sojourn".
+            clock_type (str, optional): The type of clock to use. Defaults to "sojourn".
             frozen (bool, optional): Whether to freeze the parameters. Defaults to
                 `False`.
         """

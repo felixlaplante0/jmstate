@@ -27,12 +27,12 @@ def plot_params_history(
     r"""Visualize the evolution of model parameters during fitting.
 
     This function generates a grid of subplots showing the trajectory of each model
-    parameter across iterations, allowing assessment of convergence and exploration
-    of the optimization process.
+    parameter across iterations, allowing assessment of convergence and exploration of
+    the optimization process.
 
     Args:
-        model (MultiStateJointModel): The fitted model whose parameter history is to
-            be plotted.
+        model (MultiStateJointModel): The fitted model whose parameter history is to be
+            plotted.
         figsize (tuple[int, int], optional): Figure dimensions `(width, height)`.
             Defaults to `(10, 8)`.
 
@@ -41,9 +41,8 @@ def plot_params_history(
             preventing visualization.
 
     Returns:
-        tuple[plt.Figure, np.ndarray]: A tuple containing the matplotlib `Figure`
-            object and a flattened array of `Axes` objects corresponding to the
-            subplots.
+        tuple[plt.Figure, np.ndarray]: A tuple containing the matplotlib `Figure` object
+        and a flattened array of `Axes` objects corresponding to the subplots.
     """
     from ..model._base import MultiStateJointModel  # noqa: PLC0415
 
@@ -112,9 +111,8 @@ def plot_mcmc_diagnostics(
             two recorded values.
 
     Returns:
-        tuple[plt.Figure, np.ndarray]: A tuple containing the matplotlib `Figure`
-            object and a flattened array of `Axes` objects corresponding to the
-            subplots.
+        tuple[plt.Figure, np.ndarray]: A tuple containing the matplotlib `Figure` object
+        and a flattened array of `Axes` objects corresponding to the subplots.
     """
     from ..model._base import MultiStateJointModel  # noqa: PLC0415
 

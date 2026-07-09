@@ -215,8 +215,8 @@ class HazardMixin:
             ValueError: If `u` has a shape inconsistent with the number of individuals.
 
         Returns:
-            torch.Tensor: Computed survival log-probabilities of shape `(n, m)`,
-            with rows corresponding to individuals and columns to prediction times.
+            torch.Tensor: Computed survival log-probabilities of shape `(n, m)`, with
+            rows corresponding to individuals and columns to prediction times.
         """
         assert_all_finite(u, input_name="u")
         u = torch.broadcast_to(u, (len(sample_data), -1))
@@ -351,8 +351,8 @@ class HazardMixin:
         parameter draws. These sampled trajectories form the basis for posterior
         predictive checks or downstream predictions in the joint model framework.
 
-        The input `c` must be a column vector of shape :math:`(n, 1)` where :math:`n`
-        is the number of individuals.
+        The input `c` must be a column vector of shape :math:`(n, 1)` where :math:`n` is
+        the number of individuals.
 
         Args:
             sample_data (SampleData): The dataset containing covariates, trajectories,

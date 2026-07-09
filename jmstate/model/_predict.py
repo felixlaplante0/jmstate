@@ -212,8 +212,8 @@ class PredictMixin(HazardMixin, MCMCMixin):
             ValueError: If `u` has a shape inconsistent with the number of individuals.
 
         Returns:
-            torch.Tensor: Predicted survival log-probabilities of shape
-                `(n_samples, n, m)`, stacked along the first dimension.
+            torch.Tensor: Predicted survival log-probabilities of shape `(n_samples, n,
+            m)`, stacked along the first dimension.
         """
         assert_all_finite(u, input_name="u")
         u = torch.broadcast_to(u, (len(data), -1))
@@ -288,14 +288,13 @@ class PredictMixin(HazardMixin, MCMCMixin):
 
         Simulates the evolution of individual trajectories conditional on posterior
         draws of the random effects :math:`b`, up to the censoring times `c`.
-        Trajectories are truncated to a maximum length of `max_length` to avoid
-        infinite loops. The simulation algorithm is a variant of Gillespie's method
-        adapted for individual parameters. If `double_monte_carlo` is True, then the
-        prediction is computed using the double Monte Carlo procedure described in
-        Rizopoulos (2011).
+        Trajectories are truncated to a maximum length of `max_length` to avoid infinite
+        loops. The simulation algorithm is a variant of Gillespie's method adapted for
+        individual parameters. If `double_monte_carlo` is True, then the prediction is
+        computed using the double Monte Carlo procedure described in Rizopoulos (2011).
 
-        The input `c` must be a column vector of shape :math:`(n, 1)` where :math:`n`
-        is the number of individuals.
+        The input `c` must be a column vector of shape :math:`(n, 1)` where :math:`n` is
+        the number of individuals.
 
         Args:
             data (ModelData): The dataset containing covariates, observed outcomes,
