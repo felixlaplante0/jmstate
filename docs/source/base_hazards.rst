@@ -6,6 +6,8 @@ Base Hazard Functions
    :no-undoc-members:
    :no-index:
 
+.. currentmodule:: jmstate.functions.base_hazards
+
 .. autosummary::
    :toctree: generated/
    :recursive:
