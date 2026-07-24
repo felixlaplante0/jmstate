@@ -34,6 +34,11 @@ The PAQUID file is the canonical reproduction input in this repository. Its orig
 license and reuse terms were not supplied with the dataset, so its inclusion does not
 grant redistribution or reuse rights.
 
+The PBC2 file is a CSV conversion of the `pbc2` dataset distributed with the
+[joineRML](https://github.com/graemeleehickey/joineRML) R package. It is
+licensed separately under the [GNU GPL version 3](https://www.gnu.org/licenses/gpl-3.0.txt);
+the repository's BSD license does not apply to `data/pbc2.csv`.
+
 ## Citation
 
 If you use `jmstate`, please cite [*A General Framework for Joint Multi-State
