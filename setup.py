@@ -18,7 +18,7 @@ if not {"-std=c++17", "-std=gnu++17"}.intersection(cxxflags.split()):
 
 EXTENSION = Pybind11Extension(
     "jmstate.utils._surv_ext",
-    ["csrc/surv.cpp"],
+    ["jmstate/utils/_surv_ext.cpp"],
     extra_compile_args=COMPILE_ARGS,
     extra_link_args=LINK_ARGS,
     cxx_std=17,

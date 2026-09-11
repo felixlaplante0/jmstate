@@ -1,11 +1,3 @@
-// Survival bucket construction for jmstate.
-//
-// Single-pass grouping of multistate trajectories. States are arbitrary
-// Python hashables, so grouping keys stay Python objects and only the tight
-// per-segment loops move to C++. Numeric columns are returned as plain nested
-// vectors; the Python wrapper materializes them as torch tensors with the
-// requested dtype and device in one call per column.
-
 #include <cstddef>
 #include <cstdint>
 #include <vector>
