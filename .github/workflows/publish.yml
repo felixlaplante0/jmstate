@@ -31,6 +31,8 @@ jobs:
         env:
           CIBW_BUILD: "cp3*-*"
           CIBW_SKIP: "*-musllinux_*"
+          # torch has no free-threaded macOS Intel wheel, so that test cannot install deps
+          CIBW_TEST_SKIP: "cp314t-macosx_x86_64"
           CIBW_ARCHS: native
           CIBW_TEST_REQUIRES: pytest
           CIBW_TEST_SOURCES: tests

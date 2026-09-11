@@ -16,6 +16,8 @@ from jmstate.utils._surv import (
 
 from ._helpers import _data, _model
 
+HAS_XPU = hasattr(torch, "xpu") and torch.xpu.is_available()
+
 
 def test_extension():
     trajs = [
@@ -115,7 +117,7 @@ def test_chains():
     assert len(out[0]) == 1
 
 
-@pytest.mark.skipif(not torch.xpu.is_available(), reason="no XPU device")
+@pytest.mark.skipif(not HAS_XPU, reason="no XPU device")
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
 def test_xpu(dtype):
     model = _model(max_iter=1)
