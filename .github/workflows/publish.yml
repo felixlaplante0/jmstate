@@ -30,7 +30,7 @@ jobs:
         uses: pypa/cibuildwheel@v4.1.1
         env:
           CIBW_BUILD: "cp3*-*"
-          CIBW_SKIP: "*-musllinux_* cp3??t-*"
+          CIBW_SKIP: "*-musllinux_*"
           CIBW_ARCHS: native
           CIBW_TEST_REQUIRES: pytest
           CIBW_TEST_SOURCES: tests

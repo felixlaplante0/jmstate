@@ -197,7 +197,7 @@ py::dict build_remaining_buckets_raw(const py::list &trajectories,
     return out;
 }
 
-PYBIND11_MODULE(_surv_ext, m) {
+PYBIND11_MODULE(_surv_ext, m, py::mod_gil_not_used()) {
     m.doc() = "C++ survival bucket construction for jmstate.";
     m.def("build_buckets_raw", &build_buckets_raw, py::arg("trajectories"),
           "Group observed segments by (from_state, to_state).");
