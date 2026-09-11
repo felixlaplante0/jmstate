@@ -1,10 +1,5 @@
 """Configure the Sphinx documentation builder."""
 
-import os
-import sys
-
-sys.path.insert(0, os.path.abspath("../../"))
-
 project = "jmstate"
 release = ""
 version = ""
@@ -31,7 +26,7 @@ autosummary_generate = True
 add_module_names = False
 napoleon_use_ivar = True
 napoleon_attr_annotations = True
-suppress_warnings = ["docutils", "ref.ref"]
+suppress_warnings = ["docutils", "ref.ref", "ref.term"]
 nb_execution_mode = "off"
 
 html_theme = "pydata_sphinx_theme"

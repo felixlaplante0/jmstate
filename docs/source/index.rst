@@ -73,6 +73,10 @@ Explore jmstate
 
       Reproduce the PAQUID and simulated analyses from the repository scripts.
 
+.. raw:: html
+
+   <p><a class="tutorial-link" href="https://github.com/felixlaplante0/jmstate/blob/main/scripts/fitting-test.ipynb">Open the simulated notebook source on GitHub</a> &middot; <a class="tutorial-link" href="https://github.com/felixlaplante0/jmstate/blob/main/scripts/paquid-test.ipynb">Open the PAQUID notebook source on GitHub</a></p>
+
 .. toctree::
    :hidden:
    :maxdepth: 2

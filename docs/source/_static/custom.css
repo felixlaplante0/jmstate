@@ -171,6 +171,11 @@ html[data-theme="dark"] {
   filter: brightness(1.1);
 }
 
+.tutorial-link {
+  color: var(--jmstate-blue);
+  font-weight: 650;
+}
+
 @media (max-width: 768px) {
   .hero {
     padding: 2rem 1.5rem;
