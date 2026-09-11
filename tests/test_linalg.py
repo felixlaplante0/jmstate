@@ -3,8 +3,11 @@
 import pytest
 import torch
 
-from jmstate.utils._checks import check_matrix_dim
-from jmstate.utils._linalg import flat_from_log_cholesky, log_cholesky_from_flat
+from jmstate.utils._linalg import (
+    check_matrix_dim,
+    flat_from_log_cholesky,
+    log_cholesky_from_flat,
+)
 
 
 def test_cholesky():

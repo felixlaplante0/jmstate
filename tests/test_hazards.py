@@ -42,6 +42,15 @@ def test_time_dependent_hazard_options(hazard):
     assert not any(parameter.requires_grad for parameter in hazard.parameters())
 
 
+def test_hazard_properties():
+    torch.testing.assert_close(Exponential(2.0).lmda, torch.tensor(2.0))
+    weibull = Weibull(2.0, 1.5)
+    torch.testing.assert_close(weibull.lmda, torch.tensor(2.0))
+    torch.testing.assert_close(weibull.k, torch.tensor(1.5))
+    torch.testing.assert_close(Gompertz(1.2, 0.2).a, torch.tensor(1.2))
+    torch.testing.assert_close(LogNormal(0.0, 2.0).scale, torch.tensor(2.0))
+
+
 def test_neural_hazard():
     network = torch.nn.Linear(1, 1)
     with torch.no_grad():

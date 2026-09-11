@@ -52,3 +52,37 @@ def test_summary():
         importance_batch_size=2,
     )
     assert math.isfinite(model.loglik_)
+    model.summary()
+
+
+def test_stderr():
+    model = _model()
+    with pytest.raises(ValueError, match="Fisher"):
+        _ = model.stderr
+
+
+def test_singular_stderr():
+    model = _model()
+    model.fim_ = torch.zeros(3, 3)
+    with pytest.warns(UserWarning, match="singular"):
+        stderr = model.stderr
+    assert torch.isnan(stderr).all()
+
+
+def test_stderr_values():
+    model = _model()
+    model.fim_ = torch.eye(3)
+    torch.testing.assert_close(model.stderr, torch.ones(3))
+
+
+def test_summary_jitter():
+    model = _model()
+    model.n_subsample = 1
+    model.fit(_data())
+    # One posterior iteration and one chain make the empirical covariance singular
+    model.compute_summary(
+        n_posterior_samples=1,
+        n_importance_samples=2,
+        importance_batch_size=1,
+    )
+    assert math.isfinite(model.loglik_)
