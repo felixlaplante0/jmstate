@@ -17,10 +17,15 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+      - name: Install C++ compiler
+        run: apt-get update && apt-get install -y g++
       - name: Install package and test dependencies
         run: pip install ".[test]" --extra-index-url https://download.pytorch.org/whl/cpu
       - name: Run tests with coverage
-        run: python -m pytest -v --cov=jmstate --cov-report=term-missing --cov-report=xml
+        run: |
+          cp -r tests /tmp/tests
+          cd /tmp
+          python -m pytest -v tests --cov=jmstate --cov-report=term-missing --cov-report=xml:"$GITHUB_WORKSPACE/coverage.xml"
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
         with:
