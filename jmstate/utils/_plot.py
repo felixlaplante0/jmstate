@@ -70,7 +70,7 @@ def plot_params_history(
     Y = torch.stack([h.detach().float().cpu() for h in model.params_history_])
     i = 0
     for ax, (name, val) in zip(axes, named_parameters_dict.items(), strict=False):
-        history = Y[:, i : (i := i + val.numel())].numpy()
+        history = Y[:, i : (i := i + val.numel())].tolist()
         ax.plot(history, label=[f"{name}[{j}]" for j in range(val.numel())])
         ax.set(title=name, xlabel="Iteration", ylabel="Value")
         ax.legend()
@@ -140,14 +140,14 @@ def plot_mcmc_diagnostics(
         .detach()
         .float()
         .cpu()
-        .numpy()
+        .tolist()
     )
     step_sizes = (
         torch.stack(model.sampler.diagnostics_["mean_step_size"])
         .detach()
         .float()
         .cpu()
-        .numpy()
+        .tolist()
     )
 
     axes[0].plot(accept_rates)
