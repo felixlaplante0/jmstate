@@ -45,6 +45,9 @@ class Neural(LogBaseHazardFn):
     def forward(self, t0: torch.Tensor, t1: torch.Tensor) -> torch.Tensor:
         """Evaluate the log base hazard at ``t1`` relative to ``t0``."""
         t = t1 - t0 if self.clock_type == "sojourn" else t1
+        first = next(self.nn.parameters(), None)
+        if first is not None:
+            t = t.to(first.dtype)
         return self.nn(t.reshape(-1, 1)).reshape(t.shape)
 
 
@@ -92,7 +95,10 @@ class Exponential(LogBaseHazardFn):
         super().__init__()  # type: ignore
 
         log_lmda_tensor = torch.log(torch.tensor(lmda))
-        self.log_lmda = nn.Parameter(log_lmda_tensor) if not frozen else log_lmda_tensor
+        if frozen:
+            self.register_buffer("log_lmda", log_lmda_tensor)
+        else:
+            self.log_lmda = nn.Parameter(log_lmda_tensor)
         self.frozen = frozen
 
     def forward(
@@ -184,9 +190,13 @@ class Weibull(LogBaseHazardFn):
         super().__init__()  # type: ignore
 
         log_lmda_tensor = torch.log(torch.tensor(lmda))
-        self.log_lmda = nn.Parameter(log_lmda_tensor) if not frozen else log_lmda_tensor
         log_k_tensor = torch.log(torch.tensor(k))
-        self.log_k = nn.Parameter(log_k_tensor) if not frozen else log_k_tensor
+        if frozen:
+            self.register_buffer("log_lmda", log_lmda_tensor)
+            self.register_buffer("log_k", log_k_tensor)
+        else:
+            self.log_lmda = nn.Parameter(log_lmda_tensor)
+            self.log_k = nn.Parameter(log_k_tensor)
         self.clock_type = clock_type
         self.frozen = frozen
 
@@ -285,9 +295,13 @@ class Gompertz(LogBaseHazardFn):
         super().__init__()  # type: ignore
 
         log_a_tensor = torch.log(torch.tensor(a))
-        self.log_a = nn.Parameter(log_a_tensor) if not frozen else log_a_tensor
         b_tensor = torch.tensor(b)
-        self.b = nn.Parameter(b_tensor) if not frozen else b_tensor
+        if frozen:
+            self.register_buffer("log_a", log_a_tensor)
+            self.register_buffer("b", b_tensor)
+        else:
+            self.log_a = nn.Parameter(log_a_tensor)
+            self.b = nn.Parameter(b_tensor)
         self.clock_type = clock_type
         self.frozen = frozen
 
@@ -384,11 +398,13 @@ class LogNormal(LogBaseHazardFn):
         super().__init__()  # type: ignore
 
         mu_tensor = torch.tensor(mu)
-        self.mu = nn.Parameter(mu_tensor) if not frozen else mu_tensor
         log_scale_tensor = torch.log(torch.tensor(scale))
-        self.log_scale = (
-            nn.Parameter(log_scale_tensor) if not frozen else log_scale_tensor
-        )
+        if frozen:
+            self.register_buffer("mu", mu_tensor)
+            self.register_buffer("log_scale", log_scale_tensor)
+        else:
+            self.mu = nn.Parameter(mu_tensor)
+            self.log_scale = nn.Parameter(log_scale_tensor)
         self.clock_type = clock_type
         self.frozen = frozen
 

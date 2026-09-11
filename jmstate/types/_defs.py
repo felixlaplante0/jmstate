@@ -1,15 +1,17 @@
 from abc import ABC, abstractmethod
-from typing import Final, NamedTuple, Protocol, TypeAlias
+from math import log, pi
+from typing import Any, Final, Literal, NamedTuple, Protocol, TypeAlias
 
 import torch
 from torch import nn
 
 # Type Aliases
-Trajectory: TypeAlias = list[tuple[float, str]]
+Trajectory: TypeAlias = list[tuple[float, Any]]
+PrecisionType: TypeAlias = Literal["full", "diag", "spherical"]
 
 
 # Constants
-LOG_TWO_PI: Final[torch.Tensor] = torch.log(torch.tensor(2.0 * torch.pi))
+LOG_TWO_PI: Final[float] = log(2.0 * pi)
 
 
 # User definitions

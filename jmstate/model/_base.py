@@ -1,4 +1,5 @@
 from bisect import bisect_left
+from math import isfinite
 from numbers import Integral, Real
 from typing import ClassVar, Final, Self
 from warnings import warn
@@ -11,11 +12,11 @@ from rich.table import Table
 from rich.text import Text
 from sklearn.base import BaseEstimator  # type: ignore
 from sklearn.utils._param_validation import Interval  # type: ignore
-from torch.distributions import Normal
 from torch.nn.utils import parameters_to_vector
 
 from ..types._data import ModelData, ModelDesign
 from ..types._parameters import ModelParameters
+from ..utils._dtype import canonical_dtype_device
 from ._fit import FitMixin
 from ._predict import PredictMixin
 from ._sampler import MetropolisWithinGibbsSampler
@@ -267,6 +268,28 @@ class MultiStateJointModel(BaseEstimator, FitMixin, PredictMixin):
         return super().fit(data)
 
     @property
+    def dtype(self) -> torch.dtype:
+        """Gets the canonical dtype owned by the model parameters.
+
+        Data tensors are aligned to it automatically; use ``to`` to change it.
+
+        Returns:
+            torch.dtype: The canonical dtype.
+        """
+        return canonical_dtype_device(self.params)[0]
+
+    @property
+    def device(self) -> torch.device:
+        """Gets the canonical device owned by the model parameters.
+
+        Data tensors are aligned to it automatically; use ``to`` to change it.
+
+        Returns:
+            torch.device: The canonical device.
+        """
+        return canonical_dtype_device(self.params)[1]
+
+    @property
     def stderr(self) -> torch.Tensor:
         r"""Computes the estimated standard errors of the model parameters.
 
@@ -298,7 +321,12 @@ class MultiStateJointModel(BaseEstimator, FitMixin, PredictMixin):
                 "unavailable.",
                 stacklevel=2,
             )
-            return torch.full((self.fim_.size(0),), torch.nan)
+            return torch.full(
+                (self.fim_.size(0),),
+                torch.nan,
+                dtype=self.fim_.dtype,
+                device=self.fim_.device,
+            )
 
         return self.fim_.inverse().diag().sqrt()
 
@@ -320,7 +348,13 @@ class MultiStateJointModel(BaseEstimator, FitMixin, PredictMixin):
         vector = parameters_to_vector(self.params.parameters())
         stderr = self.stderr
         zvalues = torch.abs(vector / stderr)
-        pvalues = 2 * (1 - Normal(0, 1).cdf(zvalues))
+        pvalues = 2 * torch.special.ndtr(-zvalues)
+
+        # Batch host transfer: avoids one sync per parameter on device tensors
+        values = vector.detach().float().cpu().tolist()
+        errors = stderr.detach().float().cpu().tolist()
+        zscores = zvalues.detach().float().cpu().tolist()
+        pscores = pvalues.detach().float().cpu().tolist()
 
         table = Table()
         table.add_column("Parameter name", justify="left")
@@ -334,19 +368,17 @@ class MultiStateJointModel(BaseEstimator, FitMixin, PredictMixin):
         for name, val in self.params.named_parameters():
             for j in range(val.numel()):
                 code = (
-                    SIGNIFICANCE_CODES[
-                        bisect_left(SIGNIFICANCE_LEVELS, pvalues[i].item())
-                    ]
-                    if torch.isfinite(pvalues[i])
+                    SIGNIFICANCE_CODES[bisect_left(SIGNIFICANCE_LEVELS, pscores[i])]
+                    if isfinite(pscores[i])
                     else ""
                 )
 
                 table.add_row(
                     f"{name}[{j}]",
-                    f"{vector[i].item():.3f}",
-                    f"{stderr[i].item():.3f}",
-                    f"{zvalues[i].item():.3f}",
-                    f"{pvalues[i].item():.3f}",
+                    f"{values[i]:.3f}",
+                    f"{errors[i]:.3f}",
+                    f"{zscores[i]:.3f}",
+                    f"{pscores[i]:.3f}",
                     code,
                 )
                 i += 1

@@ -1,3 +1,4 @@
+from collections.abc import Iterator
 from math import ceil
 from numbers import Integral
 from typing import Any, cast
@@ -5,7 +6,6 @@ from typing import Any, cast
 import torch
 from sklearn.utils._param_validation import Interval, validate_params  # type: ignore
 from sklearn.utils.validation import (  # type: ignore
-    assert_all_finite,  # type: ignore
     check_consistent_length,  # type: ignore
 )
 from torch.nn.utils import parameters_to_vector, vector_to_parameters
@@ -15,11 +15,11 @@ from ..types._data import (
     ModelData,
     ModelDataUnchecked,
     ModelDesign,
-    SampleData,
     SampleDataUnchecked,
 )
 from ..types._defs import Trajectory
 from ..types._parameters import ModelParameters
+from ..utils._checks import check_finite
 from ._hazard import HazardMixin
 from ._sampler import MCMCMixin
 
@@ -52,11 +52,83 @@ class PredictMixin(HazardMixin, MCMCMixin):
         Returns:
             torch.Tensor: A tensor of sampled model parameters as vectors.
         """
-        dist = torch.distributions.MultivariateNormal(
-            loc=parameters_to_vector(self.params.parameters()).detach(),
-            precision_matrix=cast(torch.Tensor, self.fim_),
-        )
+        loc = parameters_to_vector(self.params.parameters()).detach()
+        try:
+            dist = torch.distributions.MultivariateNormal(
+                loc=loc, precision_matrix=cast(torch.Tensor, self.fim_)
+            )
+        except ValueError:
+            # Fisher information may be singular; add a small relative jitter
+            fim = cast(torch.Tensor, self.fim_)
+            jitter = 1e-6 * fim.diagonal().mean().clamp(min=1e-6)
+            dist = torch.distributions.MultivariateNormal(
+                loc=loc,
+                precision_matrix=fim
+                + jitter * torch.eye(fim.size(0), dtype=fim.dtype, device=fim.device),
+            )
         return dist.sample((sample_size,))
+
+    def _posterior_draws(
+        self,
+        data: ModelDataUnchecked,
+        *,
+        n_samples: int,
+        double_monte_carlo: bool,
+        desc: str,
+    ) -> Iterator[torch.Tensor]:
+        """Yields posterior draws of individual parameters in chain batches.
+
+        Owns the sampling loop shared by all prediction methods: parameter
+        sampling for the double Monte Carlo procedure, MCMC warmup and
+        subsampling, and restoration of the fitted parameters afterwards.
+
+        Args:
+            data (ModelDataUnchecked): Prepared dataset.
+            n_samples (int): Number of posterior samples to draw.
+            double_monte_carlo (bool): Whether to sample model parameters.
+            desc (str): Progress bar description.
+
+        Raises:
+            ValueError: If `double_monte_carlo` is True and summary statistics
+                have not been computed.
+
+        Yields:
+            torch.Tensor: Individual parameters of shape `(n_chains, n, l)`.
+        """
+        n_iter = ceil(n_samples / self.n_chains)
+
+        init_params = None
+        sampled_params = None
+        if double_monte_carlo:
+            if self.fim_ is None:
+                raise ValueError(
+                    "Double Monte Carlo requires summary statistics. "
+                    "Call compute_summary() first."
+                )
+            init_params = (
+                parameters_to_vector(self.params.parameters()).detach().clone()
+            )
+            sampled_params = self._sample_params(n_iter)
+
+        sampler = self._init_sampler(data)
+        if not double_monte_carlo:
+            sampler.run(self.n_warmup)
+
+        try:
+            for i in trange(n_iter, desc=desc, disable=not bool(self.verbose)):
+                if double_monte_carlo:
+                    vector_to_parameters(sampled_params[i], self.params.parameters())  # type: ignore
+                    sampler = self._init_sampler(data).run(self.n_warmup)
+
+                yield self.design.indiv_params_fn(
+                    self.params.fixed_effects, data.x, sampler.b
+                )
+
+                if not double_monte_carlo:
+                    sampler.run(self.n_subsample)
+        finally:
+            if init_params is not None:
+                vector_to_parameters(init_params, self.params.parameters())  # type: ignore
 
     @torch.no_grad()  # type: ignore
     @validate_params(
@@ -106,49 +178,25 @@ class PredictMixin(HazardMixin, MCMCMixin):
             torch.Tensor: Predicted longitudinal outcomes of shape `(n_samples, n, m)`,
                 where predictions are stacked along the first dimension.
         """
-        assert_all_finite(u, input_name="u")
+        check_finite(u, "u")
         check_consistent_length(u, data)
 
         # Load and complete data
         data = ModelDataUnchecked(
             data.x, data.t, data.y, data.trajectories, data.c
         ).prepare(self)
+        u = u.to(dtype=data.t.dtype, device=data.t.device)
 
-        # Initialize variables
         y_pred: list[torch.Tensor] = []
-        n_iter = ceil(n_samples / self.n_chains)
-
-        if double_monte_carlo:
-            init_params = (
-                parameters_to_vector(self.params.parameters()).detach().clone()
-            )
-            sampled_params = self._sample_params(n_iter)
-
-        sampler = self._init_sampler(data)
-        if not double_monte_carlo:
-            sampler.run(self.n_warmup)
-
-        try:
-            for i in trange(
-                n_iter,
-                desc="Predicting longitudinal values",
-                disable=not bool(self.verbose),
-            ):
-                if double_monte_carlo:
-                    vector_to_parameters(sampled_params[i], self.params.parameters())  # type: ignore
-                    sampler = self._init_sampler(data).run(self.n_warmup)
-
-                indiv_params = self.design.indiv_params_fn(
-                    self.params.fixed_effects, data.x, sampler.b
-                )
-                y = self.design.regression_fn(u, indiv_params)
-                y_pred.extend(y[j] for j in range(y.size(0)))
-
-                if not double_monte_carlo:
-                    sampler.run(self.n_subsample)
-        finally:
-            if double_monte_carlo:
-                vector_to_parameters(init_params, self.params.parameters())  # type: ignore
+        draws = self._posterior_draws(
+            data,
+            n_samples=n_samples,
+            double_monte_carlo=double_monte_carlo,
+            desc="Predicting longitudinal values",
+        )
+        for indiv_params in draws:
+            y = self.design.regression_fn(u, indiv_params)
+            y_pred.extend(y[j] for j in range(y.size(0)))
 
         return torch.stack(y_pred[:n_samples])
 
@@ -215,52 +263,28 @@ class PredictMixin(HazardMixin, MCMCMixin):
             torch.Tensor: Predicted survival log-probabilities of shape `(n_samples, n,
             m)`, stacked along the first dimension.
         """
-        assert_all_finite(u, input_name="u")
+        check_finite(u, "u")
         u = torch.broadcast_to(u, (len(data), -1))
 
         # Load and complete data
         data = ModelDataUnchecked(
             data.x, data.t, data.y, data.trajectories, data.c
         ).prepare(self)
+        u = u.to(dtype=data.t.dtype, device=data.t.device)
 
-        # Initialize variables
         surv_logps_pred: list[torch.Tensor] = []
-        n_iter = ceil(n_samples / self.n_chains)
-
-        if double_monte_carlo:
-            init_params = (
-                parameters_to_vector(self.params.parameters()).detach().clone()
+        draws = self._posterior_draws(
+            data,
+            n_samples=n_samples,
+            double_monte_carlo=double_monte_carlo,
+            desc="Predicting survival log probabilities",
+        )
+        for indiv_params in draws:
+            sample_data = SampleDataUnchecked(
+                data.x, data.trajectories, indiv_params, data.c
             )
-            sampled_params = self._sample_params(n_iter)
-
-        sampler = self._init_sampler(data)
-        if not double_monte_carlo:
-            sampler.run(self.n_warmup)
-
-        try:
-            for i in trange(
-                n_iter,
-                desc="Predicting survival log probabilities",
-                disable=not bool(self.verbose),
-            ):
-                if double_monte_carlo:
-                    vector_to_parameters(sampled_params[i], self.params.parameters())  # type: ignore
-                    sampler = self._init_sampler(data).run(self.n_warmup)
-
-                indiv_params = self.design.indiv_params_fn(
-                    self.params.fixed_effects, data.x, sampler.b
-                )
-                sample_data = SampleData(
-                    data.x, data.trajectories, indiv_params, data.c
-                )
-                surv_logps = self.compute_surv_logps(sample_data, u)
-                surv_logps_pred.extend(surv_logps[j] for j in range(surv_logps.size(0)))
-
-                if not double_monte_carlo:
-                    sampler.run(self.n_subsample)
-        finally:
-            if double_monte_carlo:
-                vector_to_parameters(init_params, self.params.parameters())  # type: ignore
+            surv_logps = self.compute_surv_logps(sample_data, u)
+            surv_logps_pred.extend(surv_logps[j] for j in range(surv_logps.size(0)))
 
         return torch.stack(surv_logps_pred[:n_samples])
 
@@ -318,54 +342,28 @@ class PredictMixin(HazardMixin, MCMCMixin):
             organized as a list of lists, with the outer list indexing posterior draws
             and the inner list indexing individuals.
         """
-        assert_all_finite(c, input_name="c")
+        check_finite(c, "c")
         check_consistent_length(c, data)
 
         # Load and complete data
         data = ModelDataUnchecked(
             data.x, data.t, data.y, data.trajectories, data.c
         ).prepare(self)
+        c = c.to(dtype=data.c.dtype, device=data.c.device)
 
-        # Initialize variables
         trajectories_pred: list[list[Trajectory]] = []
-        n_iter = ceil(n_samples / self.n_chains)
-
-        if double_monte_carlo:
-            init_params = (
-                parameters_to_vector(self.params.parameters()).detach().clone()
+        draws = self._posterior_draws(
+            data,
+            n_samples=n_samples,
+            double_monte_carlo=double_monte_carlo,
+            desc="Predicting trajectories",
+        )
+        for indiv_params in draws:
+            sample_data = SampleDataUnchecked(
+                data.x, data.trajectories, indiv_params, data.c
             )
-            sampled_params = self._sample_params(n_iter)
-
-        sampler = self._init_sampler(data)
-        if not double_monte_carlo:
-            sampler.run(self.n_warmup)
-
-        try:
-            for i in trange(
-                n_iter,
-                desc="Predicting trajectories",
-                disable=not bool(self.verbose),
-            ):
-                if double_monte_carlo:
-                    vector_to_parameters(sampled_params[i], self.params.parameters())  # type: ignore
-                    sampler = self._init_sampler(data).run(self.n_warmup)
-
-                # Sample trajectories, not possible to vectorize fully
-                indiv_params = self.design.indiv_params_fn(
-                    self.params.fixed_effects, data.x, sampler.b
-                )
-                for j in range(indiv_params.size(0)):
-                    sample_data = SampleDataUnchecked(
-                        data.x, data.trajectories, indiv_params[j], data.c
-                    )
-                    trajectories_pred.append(
-                        self.sample_trajectories(sample_data, c, max_length=max_length)
-                    )
-
-                if not double_monte_carlo:
-                    sampler.run(self.n_subsample)
-        finally:
-            if double_monte_carlo:
-                vector_to_parameters(init_params, self.params.parameters())  # type: ignore
+            trajectories_pred.extend(
+                self.sample_trajectories(sample_data, c, max_length=max_length)
+            )
 
         return trajectories_pred[:n_samples]

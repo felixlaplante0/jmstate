@@ -6,6 +6,7 @@ import torch
 
 from ..types._data import ModelDataUnchecked
 from ..types._parameters import ModelParameters
+from ..utils._dtype import canonical_dtype_device, resolve_dtype
 
 
 class MCMCMixin:
@@ -56,9 +57,17 @@ class MCMCMixin:
         Returns:
             MetropolisWithinGibbsSampler: The initialized MCMC sampler.
         """
+        dtype, device = canonical_dtype_device(self.params)
+        working = resolve_dtype(dtype, data.x.dtype)
         return MetropolisWithinGibbsSampler(
             lambda b: self._logpdfs_fn(data, b),
-            torch.zeros(self.n_chains, len(data), self.params.random_prec.dim),
+            torch.zeros(
+                self.n_chains,
+                len(data),
+                self.params.random_prec.dim,
+                dtype=working,
+                device=device,
+            ),
             self.n_chains,
             self.init_step_size,
             self.adapt_rate,
@@ -113,8 +122,15 @@ class MetropolisWithinGibbsSampler:
 
         # Initialize step sizes and noise
         self.j = 0
-        self.step_sizes = torch.full((1, *self.b.shape[1:]), init_step_size)
-        self._noise = torch.empty(*self.b.shape[:-1])
+        self.step_sizes = torch.full(
+            (1, *self.b.shape[1:]),
+            init_step_size,
+            dtype=self.b.dtype,
+            device=self.b.device,
+        )
+        self._noise = torch.empty(
+            *self.b.shape[:-1], dtype=self.b.dtype, device=self.b.device
+        )
 
     @torch.no_grad()  # type: ignore
     def reset(self) -> Self:
@@ -150,7 +166,7 @@ class MetropolisWithinGibbsSampler:
         torch.where(accept_mask, proposed_logpdfs, self.logpdfs, out=self.logpdfs)
 
         # Update step sizes
-        mean_accept_mask = accept_mask.to(torch.get_default_dtype()).mean(dim=0)
+        mean_accept_mask = accept_mask.to(self.b.dtype).mean(dim=0)
         adaptation = (mean_accept_mask - self.target_accept_rate) * self.adapt_rate
         self.step_sizes[..., self.j] *= torch.exp(adaptation)
         self.j = (self.j + 1) % self.b.size(-1)

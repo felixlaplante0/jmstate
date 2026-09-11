@@ -16,6 +16,7 @@ from tqdm import trange
 
 from ..types._data import ModelData, ModelDataUnchecked, ModelDesign
 from ..types._parameters import ModelParameters
+from ..utils._dtype import canonical_dtype_device, resolve_dtype
 from ._hazard import HazardMixin
 from ._longitudinal import LongitudinalMixin
 from ._prior import PriorMixin
@@ -99,8 +100,9 @@ class FitMixin(PriorMixin, LongitudinalMixin, HazardMixin, MCMCMixin, nn.Module)
         """
 
         def r2(Y: torch.Tensor) -> torch.Tensor:
+            Y = Y.to(resolve_dtype(Y.dtype))
             n = Y.size(0)
-            i = torch.arange(n, dtype=torch.get_default_dtype())
+            i = torch.arange(n, dtype=Y.dtype, device=Y.device)
             i_centered = i - (n - 1) / 2
             y_centered = Y - Y.mean(dim=0)
             num = (i_centered @ y_centered) ** 2
@@ -110,7 +112,13 @@ class FitMixin(PriorMixin, LongitudinalMixin, HazardMixin, MCMCMixin, nn.Module)
         if len(self.params_history_) < self.window_size:
             return False
 
-        Y = torch.stack(self.params_history_[-self.window_size :])
+        last = self.params_history_[-1]
+        Y = torch.stack(
+            [
+                h.to(dtype=last.dtype, device=last.device)
+                for h in self.params_history_[-self.window_size :]
+            ]
+        )
         return r2(Y).mean().item() < self.tol
 
     def _warn_not_converged(self, *, stacklevel: int) -> None:
@@ -260,10 +268,12 @@ class FitMixin(PriorMixin, LongitudinalMixin, HazardMixin, MCMCMixin, nn.Module)
             out = _dict_jac_fn(dict(self.named_parameters()))  # type: ignore
             return torch.cat([p.reshape(n, -1) for p in out.values()], dim=-1)  # type: ignore
 
-        # Initialize accumulators
-        mjac = torch.zeros(n, self.params.numel())
-        mb = torch.zeros(n, q)
-        mb2 = torch.zeros(n, q, q)
+        # Initialize accumulators on the model device in kernel precision
+        dtype, device = canonical_dtype_device(self.params)
+        working = resolve_dtype(dtype)
+        mjac = torch.zeros(n, self.params.numel(), dtype=working, device=device)
+        mb = torch.zeros(n, q, dtype=working, device=device)
+        mb2 = torch.zeros(n, q, q, dtype=working, device=device)
 
         n_iter = ceil(n_posterior_samples / self.n_chains)
         for _ in trange(
@@ -292,10 +302,17 @@ class FitMixin(PriorMixin, LongitudinalMixin, HazardMixin, MCMCMixin, nn.Module)
 
         # Fit Gaussian proposals to the posterior moments
         covs = mb2 - torch.einsum("ij,ik->ijk", mb, mb)
-        proposal = MultivariateNormal(mb, covariance_matrix=covs)
+        covs = 0.5 * (covs + covs.mT)
+        try:
+            proposal = MultivariateNormal(mb, covariance_matrix=covs)
+        except ValueError:
+            # Empirical covariance may be singular; add a small relative jitter
+            jitter = 1e-6 * covs.diagonal(dim1=-2, dim2=-1).mean().clamp(min=1e-6)
+            eye = torch.eye(q, dtype=covs.dtype, device=covs.device)
+            proposal = MultivariateNormal(mb, covariance_matrix=covs + jitter * eye)
 
         # Estimate each subject's marginal likelihood in bounded-memory batches
-        log_weight_sum = torch.full((n,), -torch.inf, dtype=mb.dtype)
+        log_weight_sum = torch.full((n,), -torch.inf, dtype=working, device=device)
         with torch.no_grad():
             for start in trange(
                 0,

@@ -6,6 +6,7 @@ from ._defs import (
     IndividualParametersFn,
     LinkFn,
     LogBaseHazardFn,
+    PrecisionType,
     RegressionFn,
 )
 from ._parameters import ModelParameters, PrecisionParameters
@@ -19,6 +20,7 @@ __all__ = [
     "ModelDesign",
     "ModelParameters",
     "PrecisionParameters",
+    "PrecisionType",
     "RegressionFn",
     "SampleData",
 ]

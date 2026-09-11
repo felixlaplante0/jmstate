@@ -9,11 +9,11 @@ import torch
 from sklearn.base import BaseEstimator  # type: ignore
 from sklearn.utils._param_validation import validate_params  # type: ignore
 from sklearn.utils.validation import (  # type: ignore
-    assert_all_finite,  # type: ignore
     check_consistent_length,  # type: ignore
 )
 
-from ..utils._checks import check_trajectories
+from ..utils._checks import check_finite, check_trajectories
+from ..utils._dtype import canonical_dtype_device, resolve_dtype
 from ..utils._surv import build_quad_buckets
 from ._defs import IndividualParametersFn, LinkFn, RegressionFn, Trajectory
 
@@ -168,7 +168,8 @@ class ModelData(BaseEstimator):
         valid_t (torch.Tensor): Filtered tensor containing only valid measurement times.
         valid_y (torch.Tensor): Filtered tensor containing only valid measurements.
         buckets (dict[tuple[Any, Any], tuple[torch.Tensor, ...]]): Grouped trajectory
-            data structures used for likelihood computation.
+            data structures used for likelihood computation. Only set after
+            ``prepare`` as ``quad_buckets``.
     """
 
     x: torch.Tensor
@@ -195,13 +196,16 @@ class ModelData(BaseEstimator):
         Returns:
             Self: The data for the individual(s).
         """
-        idxs = torch.as_tensor(idxs).flatten()
+        rows = torch.as_tensor(idxs).flatten().tolist()
 
-        x_selected = self.x[idxs]
-        t_selected = self.t[idxs]
-        y_selected = self.y[idxs]
-        trajectories_selected = [self.trajectories[i] for i in idxs]
-        c_selected = self.c[idxs]
+        def select(tensor: torch.Tensor) -> torch.Tensor:
+            return tensor[torch.as_tensor(rows, device=tensor.device)]
+
+        x_selected = select(self.x)
+        t_selected = self.t if self.t.dim() == 1 else select(self.t)
+        y_selected = select(self.y)
+        trajectories_selected = [self.trajectories[i] for i in rows]
+        c_selected = select(self.c)
 
         return self.__class__(
             x=x_selected,
@@ -210,6 +214,28 @@ class ModelData(BaseEstimator):
             trajectories=trajectories_selected,
             c=c_selected,
         )
+
+    def to(
+        self,
+        dtype: torch.dtype | None = None,
+        device: torch.device | str | None = None,
+    ) -> Self:
+        """Moves the data tensors to a dtype and/or device, in place.
+
+        Args:
+            dtype (torch.dtype | None, optional): Target dtype. Defaults to None
+                (unchanged).
+            device (torch.device | str | None, optional): Target device. Defaults
+                to None (unchanged).
+
+        Returns:
+            Self: The data instance.
+        """
+        self.x = self.x.to(dtype=dtype, device=device)
+        self.t = self.t.to(dtype=dtype, device=device)
+        self.y = self.y.to(dtype=dtype, device=device)
+        self.c = self.c.to(dtype=dtype, device=device)
+        return self
 
     def __post_init__(self):
         """Runs the post init conversions.
@@ -235,10 +261,10 @@ class ModelData(BaseEstimator):
 
         check_trajectories(self.trajectories, self.c)
 
-        assert_all_finite(self.x, input_name="x")
-        assert_all_finite(self.t, input_name="t", allow_nan=True)
-        assert_all_finite(self.y, input_name="y", allow_nan=True)
-        assert_all_finite(self.c, input_name="c")
+        check_finite(self.x, "x")
+        check_finite(self.t, "t", allow_nan=True)
+        check_finite(self.y, "y", allow_nan=True)
+        check_finite(self.c, "c")
 
         check_consistent_length(self.x, self.y, self.c, self.trajectories)
         torch.broadcast_to(self.t, self.y.shape[:-1])
@@ -256,7 +282,7 @@ class ModelDataUnchecked(ModelData):
     n_valid: torch.Tensor = field(init=False)
     valid_t: torch.Tensor = field(init=False)
     valid_y: torch.Tensor = field(init=False)
-    buckets: dict[tuple[Any, Any], tuple[torch.Tensor, ...]] = field(init=False)
+    quad_buckets: dict[tuple[Any, Any], tuple[torch.Tensor, ...]] = field(init=False)
 
     def __post_init__(self):
         """Overrides to skip checks."""
@@ -265,14 +291,26 @@ class ModelDataUnchecked(ModelData):
     def prepare(self, model: FitMixin | PredictMixin) -> Self:
         """Sets the representation for likelihood computations according to model.
 
+        Aligns all tensors to the model parameters' dtype and device once, so
+        likelihood code performs no transfers or casts.
+
         Args:
             model (FitMixin | PredictMixi): The model instance.
 
         Returns:
             Self: The prepared (completed) data.
         """
+        dtype, device = canonical_dtype_device(model.params)
+        dtype = resolve_dtype(
+            dtype, self.x.dtype, self.t.dtype, self.y.dtype, self.c.dtype
+        )
+        self.x = self.x.to(dtype=dtype, device=device)
+        self.t = self.t.to(dtype=dtype, device=device)
+        self.y = self.y.to(dtype=dtype, device=device)
+        self.c = self.c.to(dtype=dtype, device=device)
+
         self.valid_mask = ~self.y.isnan()
-        self.n_valid = self.valid_mask.sum(dim=-2).to(self.y.dtype)
+        self.n_valid = self.valid_mask.sum(dim=-2).to(dtype)
         self.valid_t = self.t.nan_to_num(self.t.nanmean().item())
         self.valid_y = self.y.nan_to_num()
         self.quad_buckets = build_quad_buckets(model, self.trajectories, self.c)
@@ -297,9 +335,9 @@ class SampleData(BaseEstimator):
 
     Individual Parameters:
         - `indiv_params` represents the individual-specific parameters. It is expected
-          to have the same number of rows as there are trajectories. Use a 3D tensor
-          only if you fully understand the codebase and mechanisms. Trajectory sampling
-          may only be used with matrices.
+          to have the same number of rows as there are trajectories. A 3D tensor of
+          shape :math:`(C, n, l)` holds one parameter set per chain and is supported
+          by trajectory sampling, which then returns one trajectory list per chain.
 
     Conditioning Times:
         - `t_cond` corresponds to truncation or conditioning times for each individual.
@@ -353,12 +391,17 @@ class SampleData(BaseEstimator):
         Returns:
             Self: The data for the individual(s).
         """
-        idxs = torch.as_tensor(idxs).flatten()
+        rows = torch.as_tensor(idxs).flatten().tolist()
 
-        x_selected = self.x[idxs]
-        trajectories_selected = [self.trajectories[i] for i in idxs]
-        indiv_params_selected = self.indiv_params[..., idxs, :]
-        t_cond_selected = self.t_cond[idxs] if self.t_cond is not None else None
+        def select(tensor: torch.Tensor) -> torch.Tensor:
+            return tensor[torch.as_tensor(rows, device=tensor.device)]
+
+        x_selected = select(self.x)
+        trajectories_selected = [self.trajectories[i] for i in rows]
+        indiv_params_selected = self.indiv_params[
+            ..., torch.as_tensor(rows, device=self.indiv_params.device), :
+        ]
+        t_cond_selected = None if self.t_cond is None else select(self.t_cond)
 
         return self.__class__(
             x=x_selected,
@@ -366,6 +409,28 @@ class SampleData(BaseEstimator):
             indiv_params=indiv_params_selected,
             t_cond=t_cond_selected,
         )
+
+    def to(
+        self,
+        dtype: torch.dtype | None = None,
+        device: torch.device | str | None = None,
+    ) -> Self:
+        """Moves the sample tensors to a dtype and/or device, in place.
+
+        Args:
+            dtype (torch.dtype | None, optional): Target dtype. Defaults to None
+                (unchanged).
+            device (torch.device | str | None, optional): Target device. Defaults
+                to None (unchanged).
+
+        Returns:
+            Self: The sample data instance.
+        """
+        self.x = self.x.to(dtype=dtype, device=device)
+        self.indiv_params = self.indiv_params.to(dtype=dtype, device=device)
+        if self.t_cond is not None:
+            self.t_cond = self.t_cond.to(dtype=dtype, device=device)
+        return self
 
     def __post_init__(self):
         """Runs the post init conversions and checks.
@@ -390,9 +455,9 @@ class SampleData(BaseEstimator):
 
         check_trajectories(self.trajectories, self.t_cond)
 
-        assert_all_finite(self.x, input_name="x")
-        assert_all_finite(self.indiv_params, input_name="indiv_params")
-        assert_all_finite(self.t_cond, input_name="t_cond")
+        check_finite(self.x, "x")
+        check_finite(self.indiv_params, "indiv_params")
+        check_finite(self.t_cond, "t_cond")
 
         check_consistent_length(
             self.x,

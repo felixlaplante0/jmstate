@@ -66,10 +66,11 @@ def plot_params_history(
     fig, axes = plt.subplots(nrows, ncols, figsize=figsize)  # type: ignore
     axes = atleast_1d(axes).ravel()
 
-    Y = torch.stack(model.params_history_)
+    # Move to CPU in float32: history entries may be on a device and low precision
+    Y = torch.stack([h.detach().float().cpu() for h in model.params_history_])
     i = 0
     for ax, (name, val) in zip(axes, named_parameters_dict.items(), strict=False):
-        history = Y[:, i : (i := i + val.numel())]
+        history = Y[:, i : (i := i + val.numel())].numpy()
         ax.plot(history, label=[f"{name}[{j}]" for j in range(val.numel())])
         ax.set(title=name, xlabel="Iteration", ylabel="Value")
         ax.legend()
@@ -133,7 +134,23 @@ def plot_mcmc_diagnostics(
     fig, axes = plt.subplots(1, 2, figsize=figsize)  # type: ignore
     axes = atleast_1d(axes).ravel()
 
-    axes[0].plot(model.sampler.diagnostics_["mean_accept_rate"])
+    # Move to CPU in float32: diagnostics may be on a device and low precision
+    accept_rates = (
+        torch.stack(model.sampler.diagnostics_["mean_accept_rate"])
+        .detach()
+        .float()
+        .cpu()
+        .numpy()
+    )
+    step_sizes = (
+        torch.stack(model.sampler.diagnostics_["mean_step_size"])
+        .detach()
+        .float()
+        .cpu()
+        .numpy()
+    )
+
+    axes[0].plot(accept_rates)
     axes[0].set(
         title="Mean acceptance rate",
         xlabel="Iteration",
@@ -147,7 +164,7 @@ def plot_mcmc_diagnostics(
     )
 
     axes[1].plot(
-        model.sampler.diagnostics_["mean_step_size"],
+        step_sizes,
         label=[f"b[{j}]" for j in range(model.sampler.b.size(-1))],
     )
     axes[1].set(

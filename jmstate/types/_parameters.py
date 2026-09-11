@@ -5,15 +5,18 @@ import torch
 from sklearn.base import BaseEstimator  # type: ignore
 from sklearn.utils._param_validation import (  # type: ignore
     Interval,  # type: ignore
-    StrOptions,  # type: ignore
-    validate_params,  # type: ignore
+    validate_params,
 )
-from sklearn.utils.validation import assert_all_finite  # type: ignore
 from torch import nn
 
-from ..types._defs import LogBaseHazardFn
-from ..utils._checks import check_matrix_dim
-from ..utils._linalg import flat_from_log_cholesky, log_cholesky_from_flat
+from ..types._defs import LogBaseHazardFn, PrecisionType
+from ..utils._checks import check_finite
+from ..utils._dtype import resolve_dtype
+from ..utils._linalg import (
+    check_matrix_dim,
+    flat_from_log_cholesky,
+    log_cholesky_from_flat,
+)
 
 
 class PrecisionParameters(BaseEstimator, nn.Module):
@@ -47,8 +50,8 @@ class PrecisionParameters(BaseEstimator, nn.Module):
         flat (torch.Tensor): Flat representation of the precision matrix suitable for
             optimization.
         dim (int): Dimension of the precision matrix.
-        precision_type (str): Type of parametrization, one of `'full'`, `'diag'`, or
-            `'spherical'`.
+        precision_type (PrecisionType): Type of parametrization, one of `'full'`,
+            `'diag'`, or `'spherical'`.
 
     Examples:
         >>> random_prec = PrecisionParameters.from_covariance(torch.eye(3), "diag")
@@ -59,16 +62,17 @@ class PrecisionParameters(BaseEstimator, nn.Module):
     @validate_params(
         {
             "P": [torch.Tensor],
-            "precision_type": [StrOptions({"full", "diag", "spherical"})],
         },
         prefer_skip_nested_validation=True,
     )
-    def from_precision(cls, P: torch.Tensor, precision_type: str = "full") -> Self:
+    def from_precision(
+        cls, P: torch.Tensor, precision_type: PrecisionType = "full"
+    ) -> Self:
         r"""Gets instance from precision matrix according to choice of precision type.
 
         Args:
             P (torch.Tensor): The square precision matrix.
-            precision_type (str, optional): The method, `'full'`, `'diag'`, or
+            precision_type (PrecisionType, optional): The method, `'full'`, `'diag'`, or
                 `'spherical'`. Defaults to `'full'`.
 
         Returns:
@@ -82,38 +86,40 @@ class PrecisionParameters(BaseEstimator, nn.Module):
     @validate_params(
         {
             "V": [torch.Tensor],
-            "precision_type": [StrOptions({"full", "diag", "spherical"})],
         },
         prefer_skip_nested_validation=True,
     )
-    def from_covariance(cls, V: torch.Tensor, precision_type: str = "full") -> Self:
+    def from_covariance(
+        cls, V: torch.Tensor, precision_type: PrecisionType = "full"
+    ) -> Self:
         r"""Gets instance from covariance matrix according to choice of precision type.
 
         Args:
             V (torch.Tensor): The square covariance matrix.
-            precision_type (str, optional): The method, `'full'`, `'diag'`, or
+            precision_type (PrecisionType, optional): The method, `'full'`, `'diag'`, or
                 `'spherical'`. Defaults to `'full'`.
 
         Returns:
             Self: The usable representation.
         """
-        return cls.from_precision(V.inverse(), precision_type)
+        precision = torch.cholesky_inverse(torch.linalg.cholesky(V))
+        return cls.from_precision(precision, precision_type)
 
     @validate_params(
         {
             "flat": [torch.Tensor],
             "dim": [Interval(Integral, 1, None, closed="left")],
-            "precision_type": [StrOptions({"full", "diag", "spherical"})],
         },
         prefer_skip_nested_validation=True,
     )
-    def __init__(self, flat: torch.Tensor, dim: int, precision_type: str):
+    def __init__(self, flat: torch.Tensor, dim: int, precision_type: PrecisionType):
         """Initializes the `PrecisionParameters` object.
 
         Args:
             flat (torch.Tensor): The flat representation of the precision matrix.
             dim (int): The dimension of the precision matrix.
-            precision_type (str): The method used to parametrize the precision matrix.
+            precision_type (PrecisionType): The method used to parametrize the precision
+                matrix.
 
         Raises:
             ValueError: If the representation is invalid.
@@ -126,6 +132,37 @@ class PrecisionParameters(BaseEstimator, nn.Module):
         self.dim = dim
         self.precision_type = precision_type
 
+    def _cholesky_and_log_eigvals(
+        self, flat: torch.Tensor | None = None
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Gets the Cholesky factor and the log eigvals of the precision matrix.
+
+        Args:
+            flat (torch.Tensor | None, optional): Flat tensor to use instead of
+                ``self.flat``. Defaults to None.
+
+        Returns:
+            tuple[torch.Tensor, torch.Tensor]: Precision matrix and log eigvals.
+        """
+        flat = self.flat if flat is None else flat
+        L = log_cholesky_from_flat(flat, self.dim, self.precision_type)
+        log_eigvals = 2 * L.diag()
+        L.diagonal().exp_()
+
+        return L, log_eigvals
+
+    def _cholesky(self, flat: torch.Tensor | None = None) -> torch.Tensor:
+        """Gets the Cholesky factor of the precision matrix.
+
+        Args:
+            flat (torch.Tensor | None, optional): Flat tensor to use instead of
+                ``self.flat``. Defaults to None.
+
+        Returns:
+            torch.Tensor: The Cholesky factor.
+        """
+        return self._cholesky_and_log_eigvals(flat)[0]
+
     @property
     def precision(self) -> torch.Tensor:
         """Gets the precision matrix.
@@ -133,8 +170,7 @@ class PrecisionParameters(BaseEstimator, nn.Module):
         Returns:
             torch.Tensor: The precision matrix.
         """
-        L = log_cholesky_from_flat(self.flat, self.dim, self.precision_type)
-        L.diagonal().exp_()
+        L = self._cholesky()
         return L @ L.T
 
     @property
@@ -144,22 +180,20 @@ class PrecisionParameters(BaseEstimator, nn.Module):
         Returns:
             torch.Tensor: The covariance matrix.
         """
-        L = log_cholesky_from_flat(self.flat, self.dim, self.precision_type)
-        L.diagonal().exp_()
-        return torch.cholesky_inverse(L)
+        return torch.cholesky_inverse(self._cholesky())
 
     @property
     def _prec_cholesky_and_log_eigvals(self) -> tuple[torch.Tensor, torch.Tensor]:
         """Gets Cholesky factor of precision matrix and its log eigvals.
 
+        Critical kernels run in at least ``float32`` even when parameters
+        use a lower precision.
+
         Returns:
             tuple[torch.Tensor, torch.Tensor]: Precision matrix and log eigvals.
         """
-        L = log_cholesky_from_flat(self.flat, self.dim, self.precision_type)
-        log_eigvals = 2 * L.diag()
-        L.diagonal().exp_()
-
-        return L, log_eigvals
+        flat = self.flat.to(resolve_dtype(self.flat.dtype))
+        return self._cholesky_and_log_eigvals(flat)
 
 
 class ModelParameters(BaseEstimator, nn.Module):
@@ -276,7 +310,7 @@ class ModelParameters(BaseEstimator, nn.Module):
         self.x_coefs = nn.ParameterDict({str(k): v for k, v in x_coefs.items()})
 
         for key, val in self.named_parameters():
-            assert_all_finite(val.detach(), input_name=key)
+            check_finite(val.detach(), key)
 
     def numel(self) -> int:
         """Return the number of unique parameters.

@@ -1,11 +1,12 @@
+from functools import cache
+from math import isfinite
 from numbers import Integral
-from typing import Any, cast
+from typing import Any
 
 import numpy as np
 import torch
 from sklearn.utils._param_validation import Interval, validate_params  # type: ignore
 from sklearn.utils.validation import (  #  type: ignore
-    assert_all_finite,  #  type: ignore
     check_consistent_length,  #  type: ignore
 )
 
@@ -17,7 +18,21 @@ from ..types._data import (
 )
 from ..types._defs import Trajectory
 from ..types._parameters import ModelParameters
+from ..utils._checks import check_finite
+from ..utils._dtype import canonical_dtype_device, resolve_dtype
 from ..utils._surv import build_remaining_buckets
+
+
+@cache
+def _quad_tensors(
+    n_quad: int, dtype: torch.dtype, device: torch.device
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Gets cached Gauss-Legendre nodes ``(1, q)`` and weights ``(q,)``."""
+    nodes, weights = np.polynomial.legendre.leggauss(n_quad)  # type: ignore
+    return (
+        torch.tensor(nodes, dtype=dtype, device=device).unsqueeze(0),
+        torch.tensor(weights, dtype=dtype, device=device),
+    )
 
 
 class HazardMixin:
@@ -45,31 +60,50 @@ class HazardMixin:
 
         self.n_quad = n_quad
         self.n_bisect = n_bisect
-        self._std_nodes, self._std_weights = self._legendre_quad(n_quad)
 
-    @staticmethod
-    def _legendre_quad(n_quad: int) -> tuple[torch.Tensor, torch.Tensor]:
-        """Get the Legendre quadrature nodes and weights.
+    def _quad_nodes_weights(
+        self, dtype: torch.dtype, device: torch.device
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Gets quadrature nodes and weights on the target dtype/device.
+
+        Critical kernels run in at least ``float32`` even when parameters
+        use a lower precision. Tensors are cached per configuration so
+        repeated calls perform no rebuilds or transfers.
 
         Args:
-            n_quad (int): The number of quadrature points.
+            dtype (torch.dtype): Working dtype.
+            device (torch.device): Target device.
 
         Returns:
             tuple[torch.Tensor, torch.Tensor]: The nodes and weights.
         """
-        nodes, weights = cast(
-            tuple[
-                np.ndarray[Any, np.dtype[np.float64]],
-                np.ndarray[Any, np.dtype[np.float64]],
-            ],
-            np.polynomial.legendre.leggauss(n_quad),  # type: ignore
+        return _quad_tensors(self.n_quad, resolve_dtype(dtype), device)
+
+    def _align_sample_data(
+        self, sample_data: SampleData
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None]:
+        """Moves sample tensors to the model dtype/device in one call each.
+
+        Args:
+            sample_data (SampleData): The sampling data.
+
+        Returns:
+            tuple[torch.Tensor, torch.Tensor, torch.Tensor | None]: Aligned
+                covariates, individual parameters and conditioning times.
+        """
+        dtype, device = canonical_dtype_device(self.params)
+        extra = [sample_data.x.dtype, sample_data.indiv_params.dtype]
+        if sample_data.t_cond is not None:
+            extra.append(sample_data.t_cond.dtype)
+        dtype = resolve_dtype(dtype, *extra)
+        x = sample_data.x.to(dtype=dtype, device=device)
+        indiv_params = sample_data.indiv_params.to(dtype=dtype, device=device)
+        t_cond = (
+            None
+            if sample_data.t_cond is None
+            else sample_data.t_cond.to(dtype=dtype, device=device)
         )
-
-        dtype = torch.get_default_dtype()
-        std_nodes = torch.tensor(nodes, dtype=dtype).unsqueeze(0)
-        std_weights = torch.tensor(weights, dtype=dtype)
-
-        return std_nodes, std_weights
+        return x, indiv_params, t_cond
 
     def _log_hazard(
         self,
@@ -96,16 +130,14 @@ class HazardMixin:
         # Compute baseline hazard
         base = self.params.base_hazards[str_key](t0, t1)
 
-        # Compute time-varying effects
-        mod = (
-            self.design.link_fns[key](t1, indiv_params)
-            @ self.params.link_coefs[str_key]
-        )
+        # Compute time-varying effects (weights follow activations)
+        link_out = self.design.link_fns[key](t1, indiv_params)
+        mod = link_out @ self.params.link_coefs[str_key].to(link_out.dtype)
 
         # Compute covariates effect (if any)
         var = 0
         if str_key in self.params.x_coefs:
-            var = x @ self.params.x_coefs[str_key].unsqueeze(-1)
+            var = x @ self.params.x_coefs[str_key].to(x.dtype).unsqueeze(-1)
 
         return (base + mod + var).reshape((*indiv_params.shape[:-1], -1))
 
@@ -133,17 +165,16 @@ class HazardMixin:
         t1 = torch.max(t0, t1)
 
         # Transform to quadrature interval
+        nodes, weights = self._quad_nodes_weights(t1.dtype, t1.device)
         half = 0.5 * (t1 - t0)
-        quad = (
-            0.5 * (t0 + t1).unsqueeze(-1) + half.unsqueeze(-1) * self._std_nodes
-        ).flatten(start_dim=-2)
+        quad = (0.5 * (t0 + t1).unsqueeze(-1) + half.unsqueeze(-1) * nodes).flatten(
+            start_dim=-2
+        )
 
         # Compute hazard at quadrature points
         vals = self._log_hazard(key, t0, quad, x, indiv_params).clamp(max=50).exp()
 
-        return half * (
-            vals.unflatten(-1, (-1, self._std_weights.size(-1))) @ self._std_weights  # type: ignore
-        )
+        return half * (vals.unflatten(-1, (-1, weights.size(-1))) @ weights)
 
     def _hazard_logliks(
         self, data: ModelDataUnchecked, indiv_params: torch.Tensor
@@ -157,8 +188,15 @@ class HazardMixin:
         Returns:
             torch.Tensor: The computed log likelihoods.
         """
-        logliks = torch.zeros(indiv_params.shape[:-1])
+        logliks = torch.zeros(
+            indiv_params.shape[:-1],
+            dtype=resolve_dtype(indiv_params.dtype),
+            device=indiv_params.device,
+        )
 
+        _nodes, weights = self._quad_nodes_weights(
+            indiv_params.dtype, indiv_params.device
+        )
         for key, (idxs, t0, obs, half, quad) in data.quad_buckets.items():
             vals = self._log_hazard(
                 key, t0, quad, data.x[idxs], indiv_params[..., idxs, :]
@@ -167,7 +205,7 @@ class HazardMixin:
 
             # Compute log likelihoods and scatter add
             obs_logliks = vals[..., 0]
-            alts_logliks = half.flatten() * (vals[..., 1:] @ self._std_weights)
+            alts_logliks = half.flatten() * (vals[..., 1:] @ weights)
             logliks.index_add_(-1, idxs, (-alts_logliks).addcmul(obs, obs_logliks))
 
         return logliks
@@ -218,12 +256,11 @@ class HazardMixin:
             torch.Tensor: Computed survival log-probabilities of shape `(n, m)`, with
             rows corresponding to individuals and columns to prediction times.
         """
-        assert_all_finite(u, input_name="u")
+        check_finite(u, "u")
         u = torch.broadcast_to(u, (len(sample_data), -1))
 
-        x = sample_data.x
-        indiv_params = sample_data.indiv_params
-        t_cond = sample_data.t_cond
+        x, indiv_params, t_cond = self._align_sample_data(sample_data)
+        u = u.to(dtype=x.dtype, device=x.device)
 
         # Get buckets from last states
         buckets = build_remaining_buckets(
@@ -231,7 +268,12 @@ class HazardMixin:
         )
 
         # Compute the log probabilities summing over transitions
-        nlogps = torch.zeros(*indiv_params.shape[:-1], u.size(1))
+        nlogps = torch.zeros(
+            *indiv_params.shape[:-1],
+            u.size(1),
+            dtype=resolve_dtype(x.dtype),
+            device=x.device,
+        )
         for key, (idxs, t0, _t1) in buckets.items():
             # Compute negative log survival and scatter add
             t0 = t0 if t_cond is None else t_cond[idxs]  # noqa: PLW2901
@@ -265,7 +307,9 @@ class HazardMixin:
         # Initialize for bisection search
         t_left, t_right = (
             t0.clone(),
-            torch.nextafter(t1, torch.tensor(torch.inf)),
+            torch.nextafter(
+                t1, torch.full((), float("inf"), dtype=t1.dtype, device=t1.device)
+            ),
         )
 
         # Generate exponential random variables
@@ -283,29 +327,43 @@ class HazardMixin:
 
         return t_right
 
-    def _sample_trajectory_step(self, sample_data: SampleData, c: torch.Tensor) -> bool:
+    def _sample_trajectory_step(
+        self,
+        sample_data: SampleData,
+        c: torch.Tensor,
+        *,
+        censoring: list[float] | None = None,
+    ) -> bool:
         """Appends the next simulated transition.
 
         Args:
             sample_data (SampleData): Sampling data
             c (torch.Tensor): Sampling censoring time.
+            censoring (list[float] | None, optional): Host censoring times to
+                reuse. Defaults to None.
 
         Returns:
             bool: True if the sampling is done.
         """
-        x = sample_data.x
-        indiv_params = sample_data.indiv_params
-        t_cond = sample_data.t_cond
+        x, indiv_params, t_cond = self._align_sample_data(sample_data)
+        c = c.to(dtype=x.dtype, device=x.device)
 
         # Get buckets from last states
-        current_buckets = build_remaining_buckets(self, sample_data.trajectories, c)
+        current_buckets = build_remaining_buckets(
+            self, sample_data.trajectories, c, censoring=censoring
+        )
 
         if not current_buckets:
             return True
 
         # Initialize candidate transition times
         n_transitions = len(current_buckets)
-        t_candidates = torch.full((len(sample_data), n_transitions), torch.inf)
+        t_candidates = torch.full(
+            (len(sample_data), n_transitions),
+            float("inf"),
+            dtype=x.dtype,
+            device=x.device,
+        )
 
         for j, (key, (idxs, t0, t1)) in enumerate(current_buckets.items()):
             # Sample transition times, and condition with c
@@ -315,15 +373,15 @@ class HazardMixin:
             )
             t_candidates[idxs, j] = t_sample.flatten()
 
-        # Find earliest transition
+        # Find earliest transition (single host transfer instead of one per row)
         min_times, argmin_idxs = torch.min(t_candidates, dim=1)
         bucket_keys = list(current_buckets.keys())
+        times = min_times.tolist()
+        argmins = argmin_idxs.tolist()
 
-        for i, (time, arg_idx) in enumerate(zip(min_times, argmin_idxs, strict=True)):
-            if torch.isfinite(time):
-                sample_data.trajectories[i].append(
-                    (time.item(), bucket_keys[int(arg_idx)][1])
-                )
+        for i, (time, arg_idx) in enumerate(zip(times, argmins, strict=True)):
+            if isfinite(time):
+                sample_data.trajectories[i].append((time, bucket_keys[int(arg_idx)][1]))
 
         return False
 
@@ -342,7 +400,7 @@ class HazardMixin:
         c: torch.Tensor,
         *,
         max_length: int = 10,
-    ) -> list[Trajectory]:
+    ) -> list[Trajectory] | list[list[Trajectory]]:
         r"""Simulate individual trajectories from the multistate joint model.
 
         Generates sample trajectories for each individual up to the censoring times `c`,
@@ -353,6 +411,10 @@ class HazardMixin:
 
         The input `c` must be a column vector of shape :math:`(n, 1)` where :math:`n` is
         the number of individuals.
+
+        If ``indiv_params`` has a leading chain dimension ``(C, n, l)``, sampling runs
+        vectorized over the ``C * n`` chain-major rows and returns one trajectory list
+        per chain.
 
         Args:
             sample_data (SampleData): The dataset containing covariates, trajectories,
@@ -366,30 +428,49 @@ class HazardMixin:
             ValueError: If `c` has a shape inconsistent with the number of individuals.
 
         Returns:
-            list[Trajectory]: List of sampled trajectories, one per individual, with
-                each trajectory truncated at the censoring time.
+            list[Trajectory] | list[list[Trajectory]]: Sampled trajectories, one per
+                individual, or one list per chain for 3D individual parameters. Each
+                trajectory is truncated at the censoring time.
         """
-        assert_all_finite(c, input_name="c")
+        check_finite(c, "c")
         check_consistent_length(c, sample_data)
 
-        # Copy sample data to avoid modifying the original
-        trajectories_copied = [
-            trajectory.copy() for trajectory in sample_data.trajectories
+        n = len(sample_data)
+        leading = sample_data.indiv_params.shape[:-2]
+        n_chains = leading[0] if leading else 1
+
+        def _rep(tensor: torch.Tensor) -> torch.Tensor:
+            return (
+                tensor.unsqueeze(0)
+                .expand(n_chains, *tensor.shape)
+                .reshape(n_chains * n, *tensor.shape[1:])
+            )
+
+        # Chain-major flattened copies to vectorize over chains and individuals
+        trajectories_flat = [
+            trajectory.copy()
+            for _ in range(n_chains)
+            for trajectory in sample_data.trajectories
         ]
-        sample_data_copied = SampleDataUnchecked(
-            sample_data.x,
-            trajectories_copied,
-            sample_data.indiv_params,
-            sample_data.t_cond,
+        flat = SampleDataUnchecked(
+            _rep(sample_data.x),
+            trajectories_flat,
+            sample_data.indiv_params.reshape(n_chains * n, -1),
+            None if sample_data.t_cond is None else _rep(sample_data.t_cond),
         )
+        c_flat = _rep(c)
+        censoring = c_flat.reshape(-1).to(dtype=torch.float64, device="cpu").tolist()
 
         # Sample future transitions iteratively
         for _ in range(max_length):
-            if self._sample_trajectory_step(sample_data_copied, c):
+            if self._sample_trajectory_step(flat, c_flat, censoring=censoring):
                 break
-            sample_data_copied.t_cond = None
+            flat.t_cond = None
 
-        return [
-            trajectory if trajectory[-1][0] <= c[i] else trajectory[:-1]
-            for i, trajectory in enumerate(sample_data_copied.trajectories)
+        simulated = [
+            trajectory if trajectory[-1][0] <= c_flat[i] else trajectory[:-1]
+            for i, trajectory in enumerate(trajectories_flat)
         ]
+        if n_chains == 1:
+            return simulated
+        return [simulated[k * n : (k + 1) * n] for k in range(n_chains)]

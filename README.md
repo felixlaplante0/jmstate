@@ -58,6 +58,23 @@ The PBC2 file is a CSV conversion of the `pbc2` dataset distributed with the
 licensed separately under the [GNU GPL version 3](https://www.gnu.org/licenses/gpl-3.0.txt).
 The repository's BSD license does not apply to `data/pbc2.csv`.
 
+### Device, precision and compiled buckets
+
+Trajectory bucket construction runs in a compiled C++ extension (built
+automatically at install with a pure-Python fallback otherwise).
+
+The model parameters own the canonical dtype and device. Data tensors are
+aligned to them automatically, so GPU/XPU and low precision just work:
+
+```python
+model.to("xpu", torch.bfloat16)  # or .cuda(), .float(), .double(), ...
+model.fit(data)  # data follows the model, no manual casts needed
+```
+
+`bfloat16`/`float16` parameters are supported with mixed precision: times,
+quadrature and critical kernels transparently run in `float32` or higher.
+Call `.to(...)` before creating the optimizer, as usual in PyTorch.
+
 ## Citation
 
 If you use `jmstate`, please cite [*A General Framework for Joint Multi-State
