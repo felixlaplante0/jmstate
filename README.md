@@ -85,7 +85,7 @@ Models*](https://arxiv.org/abs/2510.07128) by F\'elix Laplante and Christophe Am
 
 ## Documentation
 
-Full API reference and tutorials: [jmstate documentation](https://felixlaplante0.github.io/jmstate/)
+Full API reference and tutorials: [jmstate documentation](https://jmstate.readthedocs.io/en/latest/)
 
 ---
 
