@@ -18,6 +18,29 @@ if TYPE_CHECKING:
     from ..model._hazard import HazardMixin
 
 
+def _from_numpy(values: np.ndarray, dtype: torch.dtype) -> torch.Tensor:
+    """Wraps a NumPy array, degrading gracefully without NumPy interop.
+
+    Some PyTorch builds (notably macOS x86-64 with NumPy 2) can import NumPy but
+    cannot convert from it, so fall back to a list conversion. The fast path
+    stays in place everywhere else.
+
+    Args:
+        values (np.ndarray): One-dimensional source array.
+        dtype (torch.dtype): Target tensor dtype.
+
+    Returns:
+        torch.Tensor: The wrapped tensor, sharing memory with ``values`` when the
+            bridge is available and no cast is needed.
+    """
+    try:
+        return torch.from_numpy(values).to(dtype=dtype)
+    except RuntimeError as exc:
+        if "Numpy is not available" not in str(exc):
+            raise
+        return torch.tensor(values.tolist(), dtype=dtype)
+
+
 def _column(
     values: np.ndarray, dtype: torch.dtype, device: torch.device | None
 ) -> torch.Tensor:
@@ -35,7 +58,7 @@ def _column(
     Returns:
         torch.Tensor: Column vector of shape ``(k, 1)`` and dtype ``dtype``.
     """
-    out = torch.from_numpy(values).reshape(-1, 1).to(dtype=dtype)
+    out = _from_numpy(values, dtype).reshape(-1, 1)
     return out.to(device) if device is not None else out
 
 
@@ -50,7 +73,7 @@ def _index(values: np.ndarray, device: torch.device | None) -> torch.Tensor:
     Returns:
         torch.Tensor: Index vector of shape ``(k,)`` and dtype ``torch.int64``.
     """
-    out = torch.from_numpy(values).to(dtype=torch.int64)
+    out = _from_numpy(values, torch.int64)
     return out.to(device) if device is not None else out
 
 
@@ -138,7 +161,7 @@ def build_quad_buckets(
         idxs_ = _index(idxs, device)
         t0_ = _column(t0s, dtype, device)
         t1_ = _column(t1s, dtype, device)
-        obs_ = torch.from_numpy(obs).to(device=device)
+        obs_ = _from_numpy(obs, torch.bool).to(device=device)
         half = 0.5 * (t1_ - t0_)
         quad = torch.cat([t1_, 0.5 * (t0_ + t1_) + half * nodes], dim=-1)
         out[key] = (idxs_, t0_, obs_, half, quad)

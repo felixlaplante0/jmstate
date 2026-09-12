@@ -6,8 +6,10 @@ import torch
 from jmstate.functions.base_hazards import Exponential
 from jmstate.types import SampleData
 from jmstate.types._data import ModelDataUnchecked
+from jmstate.utils import _surv as surv
 from jmstate.utils._checks import check_finite
 from jmstate.utils._dtype import dtype_device, resolve_dtype
+from jmstate.utils._surv import build_buckets
 from jmstate.utils._surv_ext import (
     _build_buckets,
     _build_quad_buckets,
@@ -37,6 +39,20 @@ def test_extension():
     assert set(_build_remaining_buckets(trajs, keys, censoring)) == {(3, 2)}
     with pytest.raises(ValueError, match="empty"):
         _build_buckets([[]])
+
+
+def test_numpy_bridge_fallback(monkeypatch):
+    """Falls back to list conversion when torch cannot read NumPy arrays."""
+    def _unavailable(*_args, **_kwargs):
+        raise RuntimeError("Numpy is not available")
+
+    monkeypatch.setattr(surv.torch, "from_numpy", _unavailable)
+    buckets = build_buckets([[(0.0, 1), (1.5, 2)], [(0.0, 1), (2.0, 2)]])
+    assert set(buckets) == {(1, 2)}
+    data = buckets[(1, 2)]
+    assert data.idxs.tolist() == [0, 1]
+    assert data.t0.flatten().tolist() == [0.0, 0.0]
+    assert data.t1.flatten().tolist() == [1.5, 2.0]
 
 
 def test_dtypes():
