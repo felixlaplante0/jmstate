@@ -83,6 +83,6 @@ Explore jmstate
 
    getting-started
    model-guide
-   paquid
-   simulated
+   paquid-test
+   fitting-test
    modules
