@@ -173,7 +173,7 @@ class MultiStateJointModel(BaseEstimator, FitMixin, PredictMixin):
         params: ModelParameters,
         optimizer: torch.optim.Optimizer | None = None,
         *,
-        n_quad: int = 32,
+        n_quad: int = 16,
         n_bisect: int = 32,
         n_chains: int = 5,
         init_step_size: float = 0.1,
@@ -200,7 +200,7 @@ class MultiStateJointModel(BaseEstimator, FitMixin, PredictMixin):
             optimizer (torch.optim.Optimizer | None, optional): Optimizer used for
                 fitting. If `None`, fitting is disabled. Defaults to None.
             n_quad (int, optional): Number of nodes for Gauss-Legendre quadrature in
-                hazard integration. Defaults to 32.
+                hazard integration. Defaults to 16.
             n_bisect (int, optional): Number of bisection steps for transition time
                 sampling. Defaults to 32.
             n_chains (int, optional): Number of parallel MCMC chains. Defaults to 5.
