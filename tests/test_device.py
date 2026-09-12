@@ -2,6 +2,11 @@
 
 import pytest
 import torch
+from jmstate.utils._surv_ext import (
+    _build_buckets,
+    _build_quad_buckets,
+    _build_remaining_buckets,
+)
 
 from jmstate.functions.base_hazards import Exponential
 from jmstate.types import SampleData
@@ -10,11 +15,6 @@ from jmstate.utils import _surv as surv
 from jmstate.utils._checks import check_finite
 from jmstate.utils._dtype import dtype_device
 from jmstate.utils._surv import build_buckets
-from jmstate.utils._surv_ext import (
-    _build_buckets,
-    _build_quad_buckets,
-    _build_remaining_buckets,
-)
 
 from ._helpers import _data, _model
 
@@ -30,19 +30,20 @@ def test_extension():
     ]
     keys = [(1, 2), (1, 3), (3, 2)]
     censoring = [2.0, 2.0, 1.0, 2.0]
-    assert set(_build_buckets(trajs)) == {(1, 1), (1, 2), (1, 3), (3, 2)}
-    assert set(_build_quad_buckets(trajs, keys, censoring)) == {
+    assert set(_build_buckets(trajs, False)) == {(1, 1), (1, 2), (1, 3), (3, 2)}
+    assert set(_build_quad_buckets(trajs, keys, censoring, False)) == {
         (1, 2),
         (1, 3),
         (3, 2),
     }
-    assert set(_build_remaining_buckets(trajs, keys, censoring)) == {(3, 2)}
+    assert set(_build_remaining_buckets(trajs, keys, censoring, False)) == {(3, 2)}
     with pytest.raises(ValueError, match="empty"):
-        _build_buckets([[]])
+        _build_buckets([[]], False)
 
 
 def test_numpy_bridge_fallback(monkeypatch):
     """Falls back to list conversion when torch cannot read NumPy arrays."""
+
     def _unavailable(*_args, **_kwargs):
         raise RuntimeError("Numpy is not available")
 
@@ -84,17 +85,10 @@ def test_double():
     assert prepared.quad_buckets[(1, 2)][1].dtype == torch.float64
 
 
-def test_bfloat16():
-    model = _model(max_iter=1).to(torch.bfloat16)
-    assert model.dtype == torch.bfloat16
-    data = _data()
-    model.fit(data)
-    prepared = ModelDataUnchecked(
-        data.x, data.t, data.y, data.trajectories, data.c
-    ).prepare(model)
-    assert prepared.x.dtype == torch.bfloat16
-    assert prepared.quad_buckets[(1, 2)][1].dtype == torch.bfloat16
-    assert prepared.quad_buckets[(1, 2)][4].dtype == torch.bfloat16
+def test_bfloat16_rejected():
+    model = _model(max_iter=1)
+    with pytest.raises(ValueError, match=r"Only torch\.float32"):
+        model.to(torch.bfloat16)
 
 
 def test_frozen():
@@ -127,11 +121,10 @@ def test_chains():
 
 
 @pytest.mark.skipif(not HAS_XPU, reason="no XPU device")
-@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
-def test_xpu(dtype):
+def test_xpu():
     model = _model(max_iter=1)
     model.n_subsample = 1
-    model.to(device="xpu", dtype=dtype)
+    model.to(device="xpu", dtype=torch.float32)
     assert model.device == torch.device("xpu:0")
     model.fit(_data())
     data = _data()

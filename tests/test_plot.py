@@ -16,7 +16,7 @@ matplotlib.use("Agg")
 def test_params_history():
     model, data = _model(max_iter=2, tol=0.0), _data()
     model.n_subsample = 1
-    model.to(torch.bfloat16)
+    model.to(torch.float64)
     model.fit(data)
     figure, axes = plot_params_history(model)
     assert len(axes) >= 1

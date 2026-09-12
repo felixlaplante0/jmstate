@@ -7,7 +7,7 @@ import torch
 from sklearn.utils._param_validation import validate_params  # type: ignore
 
 from ..types._defs import BucketData, Trajectory
-from ._dtype import dtype_device
+from ._dtype import dtype_device, model_dtype
 from ._surv_ext import (
     _build_buckets,
     _build_quad_buckets,
@@ -90,20 +90,25 @@ def build_buckets(
     typically used to visualize the trajectories per transition type in multistate
     models. Each entry corresponds to a single transition for a specific individual.
 
+    As no model is involved, times use ``torch``'s default dtype restricted to
+    ``torch.float32`` or ``torch.float64``.
+
     Args:
         trajectories (list[Trajectory]): The list of individual trajectories.
 
     Returns:
         dict[tuple[Any, Any], BucketData]: Transition keys with values ``BucketData``.
     """
-    dtype = torch.get_default_dtype()
+    dtype = model_dtype()
     result = {
         key: BucketData(
             _index(idxs, None),
             _column(t0s, dtype, None),
             _column(t1s, dtype, None),
         )
-        for key, (idxs, t0s, t1s) in _build_buckets(trajectories).items()
+        for key, (idxs, t0s, t1s) in _build_buckets(
+            trajectories, dtype == torch.float64
+        ).items()
     }
 
     return dict(sorted(result.items(), key=lambda item: str(item[0])))
@@ -120,6 +125,17 @@ def _bucket_inputs(
 
     The host ``censoring`` list may be supplied to avoid a device sync when the
     same censoring times are reused (e.g. across trajectory sampling steps).
+
+    Args:
+        model (HazardMixin): The model instance providing the dtype and device.
+        trajectories (list[Trajectory]): The trajectories.
+        c (torch.Tensor): Censoring times.
+        censoring (list[float] | None, optional): Host censoring times to reuse
+            instead of converting ``c`` again. Defaults to None.
+
+    Returns:
+        tuple[torch.dtype, torch.device, list[tuple[Any, Any]], list[float]]:
+            The model dtype, device, transition keys and host censoring times.
     """
     dtype, device = dtype_device(model.params)
     if censoring is None:
@@ -152,7 +168,9 @@ def build_quad_buckets(
             representation.
     """
     dtype, device, link_keys, censoring = _bucket_inputs(model, trajectories, c)
-    raw = _build_quad_buckets(trajectories, link_keys, censoring)
+    raw = _build_quad_buckets(
+        trajectories, link_keys, censoring, dtype == torch.float64
+    )
 
     nodes, _weights = model._quad_nodes_weights(dtype, device)
     out: dict[tuple[Any, Any], tuple[torch.Tensor, ...]] = {}
@@ -194,7 +212,9 @@ def build_remaining_buckets(
     dtype, device, link_keys, censoring = _bucket_inputs(
         model, trajectories, c, censoring=censoring
     )
-    raw = _build_remaining_buckets(trajectories, link_keys, censoring)
+    raw = _build_remaining_buckets(
+        trajectories, link_keys, censoring, dtype == torch.float64
+    )
 
     c_full = c.reshape(-1, 1).to(dtype=dtype, device=device)
     return {

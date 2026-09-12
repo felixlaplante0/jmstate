@@ -1,7 +1,7 @@
 from bisect import bisect_left
 from math import isfinite
 from numbers import Integral, Real
-from typing import ClassVar, Final, Self
+from typing import Any, ClassVar, Final, Self
 from warnings import warn
 
 import torch
@@ -16,7 +16,7 @@ from torch.nn.utils import parameters_to_vector
 
 from ..types._data import ModelData, ModelDesign
 from ..types._parameters import ModelParameters
-from ..utils._dtype import dtype_device
+from ..utils._dtype import dtype_device, model_dtype
 from ._fit import FitMixin
 from ._predict import PredictMixin
 from ._sampler import MetropolisWithinGibbsSampler
@@ -248,6 +248,38 @@ class MultiStateJointModel(BaseEstimator, FitMixin, PredictMixin):
         self.loglik_ = None
         self.aic_ = None
         self.bic_ = None
+        dtype_device(self.params)
+
+    def to(self, *args: Any, **kwargs: Any) -> Self:
+        """Moves and casts the model, rejecting unsupported dtypes.
+
+        Only ``torch.float32`` and ``torch.float64`` are supported. A requested
+        dtype is validated before conversion, so an unsupported cast never
+        mutates the model. Device-only moves are unaffected.
+
+        Args:
+            *args (Any): Positional arguments forwarded to ``nn.Module.to``.
+            **kwargs (Any): Keyword arguments forwarded to ``nn.Module.to``.
+
+        Raises:
+            ValueError: If a requested dtype or tensor dtype is neither
+                ``torch.float32`` nor ``torch.float64``.
+
+        Returns:
+            Self: The moved and cast model.
+        """
+        requested = kwargs.get("dtype")
+        if requested is None:
+            for arg in args:
+                if isinstance(arg, torch.dtype):
+                    requested = arg
+                    break
+                if isinstance(arg, torch.Tensor):
+                    requested = arg.dtype
+                    break
+        if requested is not None:
+            model_dtype(requested)
+        return super().to(*args, **kwargs)
 
     def fit(self, data: ModelData) -> Self:
         """Fits the model after validating fit-time configuration.

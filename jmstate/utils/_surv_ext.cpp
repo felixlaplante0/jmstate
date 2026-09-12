@@ -33,6 +33,25 @@ py::array_t<bool> to_mask(const std::vector<uint8_t> &values) {
     return out;
 }
 
+py::array to_time_array(const std::vector<double> &values, bool float64) {
+    if (float64) {
+        py::array_t<double> out(static_cast<py::ssize_t>(values.size()));
+        if (!values.empty()) {
+            std::memcpy(out.mutable_data(), values.data(),
+                        values.size() * sizeof(double));
+        }
+        return out;
+    }
+    py::array_t<float> out(static_cast<py::ssize_t>(values.size()));
+    if (!values.empty()) {
+        float *dst = out.mutable_data();
+        for (size_t i = 0; i < values.size(); ++i) {
+            dst[i] = static_cast<float>(values[i]);
+        }
+    }
+    return out;
+}
+
 struct PyObjHash {
     size_t operator()(const py::object &obj) const {
         return static_cast<size_t>(py::hash(obj));
@@ -64,7 +83,7 @@ py::ssize_t find_or_create(py::dict &registry, std::vector<Bucket> &buckets,
     return index;
 }
 
-py::dict _build_buckets(const py::list &trajectories) {
+py::dict _build_buckets(const py::list &trajectories, bool float64) {
     py::dict registry;
     std::vector<Bucket> buckets;
     std::vector<py::object> keys;
@@ -94,8 +113,9 @@ py::dict _build_buckets(const py::list &trajectories) {
     py::dict out;
     for (size_t k = 0; k < buckets.size(); ++k) {
         const Bucket &bucket = buckets[k];
-        out[keys[k]] = py::make_tuple(to_array(bucket.idxs), to_array(bucket.t0s),
-                                      to_array(bucket.t1s));
+        out[keys[k]] = py::make_tuple(to_array(bucket.idxs),
+                                      to_time_array(bucket.t0s, float64),
+                                      to_time_array(bucket.t1s, float64));
     }
     return out;
 }
@@ -113,7 +133,7 @@ void build_alt_map(const py::list &link_keys, AltMap &alt_map,
 }
 
 py::dict _build_quad_buckets(const py::list &trajectories, const py::list &link_keys,
-                                const py::list &censoring) {
+                             const py::list &censoring, bool float64) {
     AltMap alt_map;
     std::vector<py::object> dest_states;
     build_alt_map(link_keys, alt_map, dest_states);
@@ -185,15 +205,17 @@ py::dict _build_quad_buckets(const py::list &trajectories, const py::list &link_
         const Bucket &bucket = buckets[k];
         py::object key =
             py::reinterpret_borrow<py::object>(link_keys[static_cast<py::ssize_t>(k)]);
-        out[key] = py::make_tuple(to_array(bucket.idxs), to_array(bucket.t0s),
-                                  to_array(bucket.t1s), to_mask(bucket.obs));
+        out[key] = py::make_tuple(to_array(bucket.idxs),
+                                  to_time_array(bucket.t0s, float64),
+                                  to_time_array(bucket.t1s, float64),
+                                  to_mask(bucket.obs));
     }
     return out;
 }
 
 py::dict _build_remaining_buckets(const py::list &trajectories,
-                                     const py::list &link_keys,
-                                     const py::list &censoring) {
+                                  const py::list &link_keys,
+                                  const py::list &censoring, bool float64) {
     AltMap alt_map;
     std::vector<py::object> dest_states;
     build_alt_map(link_keys, alt_map, dest_states);
@@ -239,7 +261,8 @@ py::dict _build_remaining_buckets(const py::list &trajectories,
         const Bucket &bucket = buckets[k];
         py::object key =
             py::reinterpret_borrow<py::object>(link_keys[static_cast<py::ssize_t>(k)]);
-        out[key] = py::make_tuple(to_array(bucket.idxs), to_array(bucket.t0s));
+        out[key] = py::make_tuple(to_array(bucket.idxs),
+                                  to_time_array(bucket.t0s, float64));
     }
     return out;
 }
@@ -247,11 +270,13 @@ py::dict _build_remaining_buckets(const py::list &trajectories,
 PYBIND11_MODULE(_surv_ext, m, py::mod_gil_not_used()) {
     m.doc() = "C++ survival bucket construction for jmstate.";
     m.def("_build_buckets", &_build_buckets, py::arg("trajectories"),
+          py::arg("float64"),
           "Group observed segments by (from_state, to_state).");
     m.def("_build_quad_buckets", &_build_quad_buckets, py::arg("trajectories"),
-          py::arg("link_keys"), py::arg("censoring"),
+          py::arg("link_keys"), py::arg("censoring"), py::arg("float64"),
           "Build vectorizable buckets with competing transitions and tails.");
     m.def("_build_remaining_buckets", &_build_remaining_buckets,
           py::arg("trajectories"), py::arg("link_keys"), py::arg("censoring"),
+          py::arg("float64"),
           "Build censored-tail buckets.");
 }
