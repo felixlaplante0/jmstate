@@ -44,6 +44,15 @@ def test_checks():
         check_trajectories([[(0.0, 1), (2.0, 2)]], torch.tensor([[1.0]]))
 
 
+def test_checks_float_rounding():
+    # A transition at exactly the censoring time may overshoot by a few ULPs when
+    # the two times are computed in different precisions (e.g. float64 vs float32).
+    limit = 1.8677299
+    check_trajectories([[(0.0, 1), (limit + 1e-7, 2)]], torch.tensor([[limit]]))
+    with pytest.raises(ValueError, match="censoring"):
+        check_trajectories([[(0.0, 1), (limit + 1e-3, 2)]], torch.tensor([[limit]]))
+
+
 def test_nan_times():
     with pytest.raises(ValueError, match="NaN"):
         ModelData(
