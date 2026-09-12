@@ -16,7 +16,7 @@ from ..types._data import (
     SampleData,
     SampleDataUnchecked,
 )
-from ..types._defs import Trajectory
+from ..types._defs import LOG_CLAMP, Trajectory
 from ..types._parameters import ModelParameters
 from ..utils._checks import check_finite
 from ..utils._dtype import canonical_dtype_device, resolve_dtype
@@ -172,7 +172,9 @@ class HazardMixin:
         )
 
         # Compute hazard at quadrature points
-        vals = self._log_hazard(key, t0, quad, x, indiv_params).clamp(max=50).exp()
+        vals = (
+            self._log_hazard(key, t0, quad, x, indiv_params).clamp(max=LOG_CLAMP).exp()
+        )
 
         return half * (vals.unflatten(-1, (-1, weights.size(-1))) @ weights)
 
@@ -201,7 +203,7 @@ class HazardMixin:
             vals = self._log_hazard(
                 key, t0, quad, data.x[idxs], indiv_params[..., idxs, :]
             )
-            vals[..., 1:].clamp_(max=50).exp_()
+            vals[..., 1:].clamp_(max=LOG_CLAMP).exp_()
 
             # Compute log likelihoods and scatter add
             obs_logliks = vals[..., 0]

@@ -12,6 +12,8 @@ PrecisionType: TypeAlias = Literal["full", "diag", "spherical"]
 
 # Constants
 LOG_TWO_PI: Final[float] = log(2.0 * pi)
+LOG_CLAMP: Final[float] = 50.0
+CENSORING_TOLERANCE: Final[float] = 1e-6
 
 
 # User definitions

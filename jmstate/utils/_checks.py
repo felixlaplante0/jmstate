@@ -2,7 +2,7 @@ import itertools
 
 import torch
 
-from ..types._defs import Trajectory
+from ..types._defs import CENSORING_TOLERANCE, Trajectory
 
 
 def check_finite(
@@ -54,13 +54,8 @@ def check_trajectories(trajectories: list[Trajectory], c: torch.Tensor | None):
     if c is not None:
         # Single host transfer so device tensors cost no per-row syncs.
         limits = c.reshape(-1).tolist() if torch.is_tensor(c) else list(c)
-        # Transition and censoring times may be computed in different precisions
-        # (e.g. float64 ages against float32 tensors), so a transition that occurs
-        # exactly at the censoring time can overshoot by a few ULPs. Allow a small
-        # relative slack while still rejecting genuine incompatibilities.
-        tolerance = 1e-6
         if any(
-            trajectory[-1][0] > limit + tolerance * max(1.0, abs(limit))
+            trajectory[-1][0] > limit + CENSORING_TOLERANCE * max(1.0, abs(limit))
             for trajectory, limit in zip(trajectories, limits, strict=True)
         ):
             raise ValueError(

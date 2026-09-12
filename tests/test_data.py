@@ -45,8 +45,7 @@ def test_checks():
 
 
 def test_checks_float_rounding():
-    # A transition at exactly the censoring time may overshoot by a few ULPs when
-    # the two times are computed in different precisions (e.g. float64 vs float32).
+    # A transition at the censoring time may overshoot by a few ULPs.
     limit = 1.8677299
     check_trajectories([[(0.0, 1), (limit + 1e-7, 2)]], torch.tensor([[limit]]))
     with pytest.raises(ValueError, match="censoring"):

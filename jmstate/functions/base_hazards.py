@@ -13,7 +13,7 @@ from sklearn.utils._param_validation import (  # type: ignore
 )
 from torch import nn
 
-from ..types._defs import LOG_TWO_PI, LogBaseHazardFn
+from ..types._defs import LOG_CLAMP, LOG_TWO_PI, LogBaseHazardFn
 
 
 class Neural(LogBaseHazardFn):
@@ -211,7 +211,7 @@ class Weibull(LogBaseHazardFn):
             torch.Tensor: The computed base hazard in log scale.
         """
         t = t1 - t0 if self.clock_type == "sojourn" else t1
-        log_t = torch.log(t).clamp(min=-50)
+        log_t = torch.log(t).clamp(min=-LOG_CLAMP)
         return self.log_k + self.k * self.log_lmda + (self.k - 1) * log_t
 
     @property
@@ -419,7 +419,7 @@ class LogNormal(LogBaseHazardFn):
             torch.Tensor: The computed base hazard in log scale.
         """
         t = t1 - t0 if self.clock_type == "sojourn" else t1
-        log_t = torch.log(t).clamp(min=-50)
+        log_t = torch.log(t).clamp(min=-LOG_CLAMP)
         z = (log_t - self.mu) / self.scale
         log_pdf = -log_t - self.log_scale - 0.5 * LOG_TWO_PI - 0.5 * z**2
         log_sf = cast(torch.Tensor, torch.special.log_ndtr(-z))  # type: ignore
