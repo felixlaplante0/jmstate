@@ -16,7 +16,7 @@ from tqdm import trange
 
 from ..types._data import ModelData, ModelDataUnchecked, ModelDesign
 from ..types._parameters import ModelParameters
-from ..utils._dtype import dtype_device, resolve_dtype
+from ..utils._dtype import dtype_device
 from ._hazard import HazardMixin
 from ._longitudinal import LongitudinalMixin
 from ._prior import PriorMixin
@@ -100,7 +100,6 @@ class FitMixin(PriorMixin, LongitudinalMixin, HazardMixin, MCMCMixin, nn.Module)
         """
 
         def r2(Y: torch.Tensor) -> torch.Tensor:
-            Y = Y.to(resolve_dtype(Y.dtype))
             n = Y.size(0)
             i = torch.arange(n, dtype=Y.dtype, device=Y.device)
             i_centered = i - (n - 1) / 2
@@ -270,7 +269,7 @@ class FitMixin(PriorMixin, LongitudinalMixin, HazardMixin, MCMCMixin, nn.Module)
 
         # Initialize accumulators on the model device in kernel precision
         dtype, device = dtype_device(self.params)
-        working = resolve_dtype(dtype)
+        working = dtype
         mjac = torch.zeros(n, self.params.numel(), dtype=working, device=device)
         mb = torch.zeros(n, q, dtype=working, device=device)
         mb2 = torch.zeros(n, q, q, dtype=working, device=device)

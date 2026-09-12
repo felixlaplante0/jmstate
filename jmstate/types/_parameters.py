@@ -11,7 +11,6 @@ from torch import nn
 
 from ..types._defs import LogBaseHazardFn, PrecisionType
 from ..utils._checks import check_finite
-from ..utils._dtype import resolve_dtype
 from ..utils._linalg import (
     check_matrix_dim,
     flat_from_log_cholesky,
@@ -186,14 +185,10 @@ class PrecisionParameters(BaseEstimator, nn.Module):
     def _prec_cholesky_log_eigvals(self) -> tuple[torch.Tensor, torch.Tensor]:
         """Gets Cholesky factor of precision matrix and its log eigvals.
 
-        Critical kernels run in at least ``float32`` even when parameters
-        use a lower precision.
-
         Returns:
             tuple[torch.Tensor, torch.Tensor]: Precision matrix and log eigvals.
         """
-        flat = self.flat.to(resolve_dtype(self.flat.dtype))
-        return self._cholesky_log_eigvals(flat)
+        return self._cholesky_log_eigvals(self.flat)
 
 
 class ModelParameters(BaseEstimator, nn.Module):

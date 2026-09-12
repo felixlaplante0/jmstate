@@ -7,7 +7,7 @@ import torch
 from sklearn.utils._param_validation import validate_params  # type: ignore
 
 from ..types._defs import BucketData, Trajectory
-from ._dtype import dtype_device, resolve_dtype
+from ._dtype import dtype_device
 from ._surv_ext import (
     _build_buckets,
     _build_quad_buckets,
@@ -122,7 +122,6 @@ def _bucket_inputs(
     same censoring times are reused (e.g. across trajectory sampling steps).
     """
     dtype, device = dtype_device(model.params)
-    dtype = resolve_dtype(dtype, c.dtype)
     if censoring is None:
         censoring = c.reshape(-1).to(dtype=torch.float64, device="cpu").tolist()
     if len(censoring) != len(trajectories):
@@ -139,9 +138,9 @@ def build_quad_buckets(
 ) -> dict[tuple[Any, Any], tuple[torch.Tensor, ...]]:
     """Build vectorizable bucket representation.
 
-    Time columns follow the model parameters' dtype and device (kept in at
-    least ``float32``); indices and quadrature outputs live on the model
-    device so likelihood code performs no transfers.
+    Time columns follow the model parameters' dtype and device; indices and
+    quadrature outputs live on the model device so likelihood code performs no
+    transfers.
 
     Args:
         model (HazardMixin): The model instance.
@@ -178,8 +177,8 @@ def build_remaining_buckets(
 ) -> dict[tuple[Any, Any], tuple[torch.Tensor, ...]]:
     """Build possible bucket representation.
 
-    Time columns follow the model parameters' dtype and device (kept in at
-    least ``float32``) so prediction code performs no transfers.
+    Time columns follow the model parameters' dtype and device so prediction
+    code performs no transfers.
 
     Args:
         model (HazardMixin): The model instance.

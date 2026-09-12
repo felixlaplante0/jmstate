@@ -13,7 +13,7 @@ from sklearn.utils.validation import (  # type: ignore
 )
 
 from ..utils._checks import check_finite, check_trajectories
-from ..utils._dtype import dtype_device, resolve_dtype
+from ..utils._dtype import dtype_device
 from ..utils._surv import build_quad_buckets
 from ._defs import IndividualParametersFn, LinkFn, RegressionFn, Trajectory
 
@@ -301,9 +301,6 @@ class ModelDataUnchecked(ModelData):
             Self: The prepared (completed) data.
         """
         dtype, device = dtype_device(model.params)
-        dtype = resolve_dtype(
-            dtype, self.x.dtype, self.t.dtype, self.y.dtype, self.c.dtype
-        )
         self.x = self.x.to(dtype=dtype, device=device)
         self.t = self.t.to(dtype=dtype, device=device)
         self.y = self.y.to(dtype=dtype, device=device)

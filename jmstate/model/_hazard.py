@@ -19,7 +19,7 @@ from ..types._data import (
 from ..types._defs import LOG_CLAMP, Trajectory
 from ..types._parameters import ModelParameters
 from ..utils._checks import check_finite
-from ..utils._dtype import dtype_device, resolve_dtype
+from ..utils._dtype import dtype_device
 from ..utils._surv import build_remaining_buckets
 
 
@@ -66,9 +66,8 @@ class HazardMixin:
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Gets quadrature nodes and weights on the target dtype/device.
 
-        Critical kernels run in at least ``float32`` even when parameters
-        use a lower precision. Tensors are cached per configuration so
-        repeated calls perform no rebuilds or transfers.
+        Tensors are cached per configuration so repeated calls perform no
+        rebuilds or transfers.
 
         Args:
             dtype (torch.dtype): Working dtype.
@@ -77,7 +76,7 @@ class HazardMixin:
         Returns:
             tuple[torch.Tensor, torch.Tensor]: The nodes and weights.
         """
-        return _quad_tensors(self.n_quad, resolve_dtype(dtype), device)
+        return _quad_tensors(self.n_quad, dtype, device)
 
     def _align_sample_data(
         self, sample_data: SampleData
@@ -92,10 +91,6 @@ class HazardMixin:
                 covariates, individual parameters and conditioning times.
         """
         dtype, device = dtype_device(self.params)
-        extra = [sample_data.x.dtype, sample_data.indiv_params.dtype]
-        if sample_data.t_cond is not None:
-            extra.append(sample_data.t_cond.dtype)
-        dtype = resolve_dtype(dtype, *extra)
         x = sample_data.x.to(dtype=dtype, device=device)
         indiv_params = sample_data.indiv_params.to(dtype=dtype, device=device)
         t_cond = (
@@ -192,7 +187,7 @@ class HazardMixin:
         """
         logliks = torch.zeros(
             indiv_params.shape[:-1],
-            dtype=resolve_dtype(indiv_params.dtype),
+            dtype=indiv_params.dtype,
             device=indiv_params.device,
         )
 
@@ -273,7 +268,7 @@ class HazardMixin:
         nlogps = torch.zeros(
             *indiv_params.shape[:-1],
             u.size(1),
-            dtype=resolve_dtype(x.dtype),
+            dtype=x.dtype,
             device=x.device,
         )
         for key, (idxs, t0, _t1) in buckets.items():

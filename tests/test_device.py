@@ -8,7 +8,7 @@ from jmstate.types import SampleData
 from jmstate.types._data import ModelDataUnchecked
 from jmstate.utils import _surv as surv
 from jmstate.utils._checks import check_finite
-from jmstate.utils._dtype import dtype_device, resolve_dtype
+from jmstate.utils._dtype import dtype_device
 from jmstate.utils._surv import build_buckets
 from jmstate.utils._surv_ext import (
     _build_buckets,
@@ -55,13 +55,6 @@ def test_numpy_bridge_fallback(monkeypatch):
     assert data.t1.flatten().tolist() == [1.5, 2.0]
 
 
-def test_dtypes():
-    assert resolve_dtype(torch.float32, torch.bfloat16) == torch.float32
-    assert resolve_dtype(torch.bfloat16) == torch.float32
-    assert resolve_dtype(torch.float32, torch.float64) == torch.float64
-    assert resolve_dtype(torch.float64) == torch.float64
-
-
 def test_canonical():
     model = _model()
     assert model.dtype == torch.float32
@@ -99,9 +92,9 @@ def test_bfloat16():
     prepared = ModelDataUnchecked(
         data.x, data.t, data.y, data.trajectories, data.c
     ).prepare(model)
-    assert prepared.x.dtype == torch.float32
-    assert prepared.quad_buckets[(1, 2)][1].dtype == torch.float32
-    assert prepared.quad_buckets[(1, 2)][4].dtype == torch.float32
+    assert prepared.x.dtype == torch.bfloat16
+    assert prepared.quad_buckets[(1, 2)][1].dtype == torch.bfloat16
+    assert prepared.quad_buckets[(1, 2)][4].dtype == torch.bfloat16
 
 
 def test_frozen():
