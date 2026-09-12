@@ -2,15 +2,16 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+import numpy as np
 import torch
 from sklearn.utils._param_validation import validate_params  # type: ignore
 
 from ..types._defs import BucketData, Trajectory
-from ._dtype import canonical_dtype_device, resolve_dtype
+from ._dtype import dtype_device, resolve_dtype
 from ._surv_ext import (
-    build_buckets_raw,
-    build_quad_buckets_raw,
-    build_remaining_buckets_raw,
+    _build_buckets,
+    _build_quad_buckets,
+    _build_remaining_buckets,
 )
 
 if TYPE_CHECKING:
@@ -18,16 +19,38 @@ if TYPE_CHECKING:
 
 
 def _column(
-    values: list, dtype: torch.dtype, device: torch.device | None
+    values: np.ndarray, dtype: torch.dtype, device: torch.device | None
 ) -> torch.Tensor:
-    """Materializes a ``(k, 1)`` float column on the target device in one call."""
-    out = torch.tensor(values, dtype=dtype).reshape(-1, 1)
+    """Wraps a 1D time array into a ``(k, 1)`` float column.
+
+    Shares memory with ``values`` when no dtype conversion or device transfer is
+    needed, so the returned tensor must not outlive it (it holds a reference).
+
+    Args:
+        values (np.ndarray): One-dimensional transition times of shape ``(k,)``.
+        dtype (torch.dtype): Floating-point output dtype.
+        device (torch.device | None): Target device, or None to keep the tensor
+            where ``values`` is wrapped.
+
+    Returns:
+        torch.Tensor: Column vector of shape ``(k, 1)`` and dtype ``dtype``.
+    """
+    out = torch.from_numpy(values).reshape(-1, 1).to(dtype=dtype)
     return out.to(device) if device is not None else out
 
 
-def _index(values: list, device: torch.device | None) -> torch.Tensor:
-    """Materializes an index vector on the target device in one call."""
-    out = torch.tensor(values, dtype=torch.int64)
+def _index(values: np.ndarray, device: torch.device | None) -> torch.Tensor:
+    """Wraps a 1D index array into an ``int64`` tensor.
+
+    Args:
+        values (np.ndarray): One-dimensional indices of shape ``(k,)``.
+        device (torch.device | None): Target device, or None to keep the tensor
+            where ``values`` is wrapped.
+
+    Returns:
+        torch.Tensor: Index vector of shape ``(k,)`` and dtype ``torch.int64``.
+    """
+    out = torch.from_numpy(values).to(dtype=torch.int64)
     return out.to(device) if device is not None else out
 
 
@@ -57,7 +80,7 @@ def build_buckets(
             _column(t0s, dtype, None),
             _column(t1s, dtype, None),
         )
-        for key, (idxs, t0s, t1s) in build_buckets_raw(trajectories).items()
+        for key, (idxs, t0s, t1s) in _build_buckets(trajectories).items()
     }
 
     return dict(sorted(result.items(), key=lambda item: str(item[0])))
@@ -75,7 +98,7 @@ def _bucket_inputs(
     The host ``censoring`` list may be supplied to avoid a device sync when the
     same censoring times are reused (e.g. across trajectory sampling steps).
     """
-    dtype, device = canonical_dtype_device(model.params)
+    dtype, device = dtype_device(model.params)
     dtype = resolve_dtype(dtype, c.dtype)
     if censoring is None:
         censoring = c.reshape(-1).to(dtype=torch.float64, device="cpu").tolist()
@@ -107,7 +130,7 @@ def build_quad_buckets(
             representation.
     """
     dtype, device, link_keys, censoring = _bucket_inputs(model, trajectories, c)
-    raw = build_quad_buckets_raw(trajectories, link_keys, censoring)
+    raw = _build_quad_buckets(trajectories, link_keys, censoring)
 
     nodes, _weights = model._quad_nodes_weights(dtype, device)
     out: dict[tuple[Any, Any], tuple[torch.Tensor, ...]] = {}
@@ -115,7 +138,7 @@ def build_quad_buckets(
         idxs_ = _index(idxs, device)
         t0_ = _column(t0s, dtype, device)
         t1_ = _column(t1s, dtype, device)
-        obs_ = torch.tensor(obs, dtype=torch.bool, device=device)
+        obs_ = torch.from_numpy(obs).to(device=device)
         half = 0.5 * (t1_ - t0_)
         quad = torch.cat([t1_, 0.5 * (t0_ + t1_) + half * nodes], dim=-1)
         out[key] = (idxs_, t0_, obs_, half, quad)
@@ -149,7 +172,7 @@ def build_remaining_buckets(
     dtype, device, link_keys, censoring = _bucket_inputs(
         model, trajectories, c, censoring=censoring
     )
-    raw = build_remaining_buckets_raw(trajectories, link_keys, censoring)
+    raw = _build_remaining_buckets(trajectories, link_keys, censoring)
 
     c_full = c.reshape(-1, 1).to(dtype=dtype, device=device)
     return {

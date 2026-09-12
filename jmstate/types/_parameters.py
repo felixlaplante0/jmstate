@@ -132,7 +132,7 @@ class PrecisionParameters(BaseEstimator, nn.Module):
         self.dim = dim
         self.precision_type = precision_type
 
-    def _cholesky_and_log_eigvals(
+    def _cholesky_log_eigvals(
         self, flat: torch.Tensor | None = None
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Gets the Cholesky factor and the log eigvals of the precision matrix.
@@ -161,7 +161,7 @@ class PrecisionParameters(BaseEstimator, nn.Module):
         Returns:
             torch.Tensor: The Cholesky factor.
         """
-        return self._cholesky_and_log_eigvals(flat)[0]
+        return self._cholesky_log_eigvals(flat)[0]
 
     @property
     def precision(self) -> torch.Tensor:
@@ -183,7 +183,7 @@ class PrecisionParameters(BaseEstimator, nn.Module):
         return torch.cholesky_inverse(self._cholesky())
 
     @property
-    def _prec_cholesky_and_log_eigvals(self) -> tuple[torch.Tensor, torch.Tensor]:
+    def _prec_cholesky_log_eigvals(self) -> tuple[torch.Tensor, torch.Tensor]:
         """Gets Cholesky factor of precision matrix and its log eigvals.
 
         Critical kernels run in at least ``float32`` even when parameters
@@ -193,7 +193,7 @@ class PrecisionParameters(BaseEstimator, nn.Module):
             tuple[torch.Tensor, torch.Tensor]: Precision matrix and log eigvals.
         """
         flat = self.flat.to(resolve_dtype(self.flat.dtype))
-        return self._cholesky_and_log_eigvals(flat)
+        return self._cholesky_log_eigvals(flat)
 
 
 class ModelParameters(BaseEstimator, nn.Module):

@@ -6,7 +6,7 @@ import torch
 
 from ..types._data import ModelDataUnchecked
 from ..types._parameters import ModelParameters
-from ..utils._dtype import canonical_dtype_device, resolve_dtype
+from ..utils._dtype import dtype_device, resolve_dtype
 
 
 class MCMCMixin:
@@ -57,7 +57,7 @@ class MCMCMixin:
         Returns:
             MetropolisWithinGibbsSampler: The initialized MCMC sampler.
         """
-        dtype, device = canonical_dtype_device(self.params)
+        dtype, device = dtype_device(self.params)
         working = resolve_dtype(dtype, data.x.dtype)
         return MetropolisWithinGibbsSampler(
             lambda b: self._logpdfs_fn(data, b),

@@ -16,7 +16,7 @@ from torch.nn.utils import parameters_to_vector
 
 from ..types._data import ModelData, ModelDesign
 from ..types._parameters import ModelParameters
-from ..utils._dtype import canonical_dtype_device
+from ..utils._dtype import dtype_device
 from ._fit import FitMixin
 from ._predict import PredictMixin
 from ._sampler import MetropolisWithinGibbsSampler
@@ -276,7 +276,7 @@ class MultiStateJointModel(BaseEstimator, FitMixin, PredictMixin):
         Returns:
             torch.dtype: The canonical dtype.
         """
-        return canonical_dtype_device(self.params)[0]
+        return dtype_device(self.params)[0]
 
     @property
     def device(self) -> torch.device:
@@ -287,7 +287,7 @@ class MultiStateJointModel(BaseEstimator, FitMixin, PredictMixin):
         Returns:
             torch.device: The canonical device.
         """
-        return canonical_dtype_device(self.params)[1]
+        return dtype_device(self.params)[1]
 
     @property
     def stderr(self) -> torch.Tensor:

@@ -1,13 +1,14 @@
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
+#include <unordered_map>
 #include <vector>
 
+#include <pybind11/numpy.h>
 #include <pybind11/pybind11.h>
-#include <pybind11/stl.h>
 
 namespace py = pybind11;
 
-// Accumulators for one transition key.
 struct Bucket {
     std::vector<int64_t> idxs;
     std::vector<double> t0s;
@@ -15,11 +16,46 @@ struct Bucket {
     std::vector<uint8_t> obs;
 };
 
-// Finds or creates the bucket index for a key in a dict-backed registry.
+template <typename T>
+py::array_t<T> to_array(const std::vector<T> &values) {
+    py::array_t<T> out(static_cast<py::ssize_t>(values.size()));
+    if (!values.empty()) {
+        std::memcpy(out.mutable_data(), values.data(), values.size() * sizeof(T));
+    }
+    return out;
+}
+
+py::array_t<bool> to_mask(const std::vector<uint8_t> &values) {
+    py::array_t<bool> out(static_cast<py::ssize_t>(values.size()));
+    if (!values.empty()) {
+        std::memcpy(out.mutable_data(), values.data(), values.size());
+    }
+    return out;
+}
+
+struct PyObjHash {
+    size_t operator()(const py::object &obj) const {
+        return static_cast<size_t>(py::hash(obj));
+    }
+};
+
+struct PyObjEq {
+    bool operator()(const py::object &lhs, const py::object &rhs) const {
+        return lhs.equal(rhs);
+    }
+};
+
+using AltMap =
+    std::unordered_map<py::object, std::vector<py::ssize_t>, PyObjHash, PyObjEq>;
+
 py::ssize_t find_or_create(py::dict &registry, std::vector<Bucket> &buckets,
                            std::vector<py::object> &keys, const py::tuple &key) {
-    if (registry.contains(key)) {
-        return py::cast<py::ssize_t>(registry[key]);
+    PyObject *existing = PyDict_GetItemWithError(registry.ptr(), key.ptr());
+    if (existing != nullptr) {
+        return py::cast<py::ssize_t>(py::reinterpret_borrow<py::object>(existing));
+    }
+    if (PyErr_Occurred()) {
+        throw py::error_already_set();
     }
     const py::ssize_t index = static_cast<py::ssize_t>(buckets.size());
     registry[key] = index;
@@ -28,10 +64,7 @@ py::ssize_t find_or_create(py::dict &registry, std::vector<Bucket> &buckets,
     return index;
 }
 
-// Groups observed segments by (from_state, to_state).
-//
-// Returns a dict mapping key tuples to (idxs, t0s, t1s) Python lists.
-py::dict build_buckets_raw(const py::list &trajectories) {
+py::dict _build_buckets(const py::list &trajectories) {
     py::dict registry;
     std::vector<Bucket> buckets;
     std::vector<py::object> keys;
@@ -43,55 +76,53 @@ py::dict build_buckets_raw(const py::list &trajectories) {
         if (m == 0) {
             throw py::value_error("Trajectories must not be empty");
         }
-        for (py::ssize_t j = 0; j + 1 < m; ++j) {
-            const py::tuple p0 = trajectory[j];
-            const py::tuple p1 = trajectory[j + 1];
-            const double t0 = py::float_(p0[0]);
-            const double t1 = py::float_(p1[0]);
+        py::tuple p0 = py::cast<py::tuple>(trajectory[0]);
+        for (py::ssize_t j = 1; j < m; ++j) {
+            const py::tuple p1 = py::cast<py::tuple>(trajectory[j]);
+            const double t0 = p0[0].cast<double>();
+            const double t1 = p1[0].cast<double>();
             const py::tuple key = py::make_tuple(p0[1], p1[1]);
             const py::ssize_t index = find_or_create(registry, buckets, keys, key);
             Bucket &bucket = buckets[static_cast<size_t>(index)];
             bucket.idxs.push_back(static_cast<int64_t>(i));
             bucket.t0s.push_back(t0);
             bucket.t1s.push_back(t1);
+            p0 = p1;
         }
     }
 
     py::dict out;
     for (size_t k = 0; k < buckets.size(); ++k) {
         const Bucket &bucket = buckets[k];
-        out[keys[k]] = py::make_tuple(bucket.idxs, bucket.t0s, bucket.t1s);
+        out[keys[k]] = py::make_tuple(to_array(bucket.idxs), to_array(bucket.t0s),
+                                      to_array(bucket.t1s));
     }
     return out;
 }
 
-// Builds the state -> link-key-indices lookup shared by quad/remaining buckets.
-void build_alt_map(const py::list &link_keys, py::dict &alt_map,
+void build_alt_map(const py::list &link_keys, AltMap &alt_map,
                    std::vector<py::object> &dest_states) {
     dest_states.reserve(static_cast<size_t>(py::len(link_keys)));
-    for (const auto &key_h : link_keys) {
+    for (const py::handle key_h : link_keys) {
         const py::tuple key = py::cast<py::tuple>(key_h);
-        const py::ssize_t k = static_cast<py::ssize_t>(dest_states.size());
         dest_states.emplace_back(py::reinterpret_borrow<py::object>(key[1]));
-        const py::object src = py::reinterpret_borrow<py::object>(key[0]);
-        if (!alt_map.contains(src)) {
-            alt_map[src] = py::list();
-        }
-        alt_map[src].attr("append")(k);
+        py::object src = py::reinterpret_borrow<py::object>(key[0]);
+        alt_map[std::move(src)].push_back(
+            static_cast<py::ssize_t>(dest_states.size() - 1));
     }
 }
 
-// Vectorizable buckets: observed segments expanded over competing transitions
-// plus censored tails. Returns key tuples to (idxs, t0s, t1s, obs) lists.
-py::dict build_quad_buckets_raw(const py::list &trajectories, const py::list &link_keys,
+py::dict _build_quad_buckets(const py::list &trajectories, const py::list &link_keys,
                                 const py::list &censoring) {
-    py::dict alt_map;
+    AltMap alt_map;
     std::vector<py::object> dest_states;
     build_alt_map(link_keys, alt_map, dest_states);
 
-    py::dict registry;
-    std::vector<Bucket> buckets;
-    std::vector<py::object> keys;
+    const size_t n_links = static_cast<size_t>(py::len(link_keys));
+    std::vector<Bucket> buckets(n_links);
+    std::vector<uint8_t> used(n_links, 0);
+    std::vector<size_t> order;
+    order.reserve(n_links);
 
     const py::ssize_t n = py::len(trajectories);
     for (py::ssize_t i = 0; i < n; ++i) {
@@ -100,68 +131,78 @@ py::dict build_quad_buckets_raw(const py::list &trajectories, const py::list &li
         if (m == 0) {
             throw py::value_error("Trajectories must not be empty");
         }
-        for (py::ssize_t j = 0; j + 1 < m; ++j) {
-            const py::tuple p0 = trajectory[j];
-            const py::tuple p1 = trajectory[j + 1];
-            const double t0 = py::float_(p0[0]);
-            const double t1 = py::float_(p1[0]);
+        py::tuple p0 = py::cast<py::tuple>(trajectory[0]);
+        for (py::ssize_t j = 1; j < m; ++j) {
+            const py::tuple p1 = py::cast<py::tuple>(trajectory[j]);
+            const double t0 = p0[0].cast<double>();
+            const double t1 = p1[0].cast<double>();
             const py::object s0 = py::reinterpret_borrow<py::object>(p0[1]);
             const py::object s1 = py::reinterpret_borrow<py::object>(p1[1]);
-            if (!alt_map.contains(s0)) {
-                continue;
+            const auto it = alt_map.find(s0);
+            if (it != alt_map.end()) {
+                for (const py::ssize_t k : it->second) {
+                    const auto idx = static_cast<size_t>(k);
+                    if (!used[idx]) {
+                        used[idx] = 1;
+                        order.push_back(idx);
+                    }
+                    Bucket &bucket = buckets[idx];
+                    bucket.idxs.push_back(static_cast<int64_t>(i));
+                    bucket.t0s.push_back(t0);
+                    bucket.t1s.push_back(t1);
+                    bucket.obs.push_back(dest_states[idx].equal(s1) ? 1 : 0);
+                }
             }
-            for (const auto &k_h : alt_map[s0]) {
-                const py::ssize_t k = py::cast<py::ssize_t>(k_h);
-                const py::tuple key = link_keys[k];
-                const py::ssize_t index = find_or_create(registry, buckets, keys, key);
-                Bucket &bucket = buckets[static_cast<size_t>(index)];
-                bucket.idxs.push_back(static_cast<int64_t>(i));
-                bucket.t0s.push_back(t0);
-                bucket.t1s.push_back(t1);
-                bucket.obs.push_back(dest_states[static_cast<size_t>(k)].equal(s1));
-            }
+            p0 = p1;
         }
-        const py::tuple last = trajectory[m - 1];
-        const double last_t = py::float_(last[0]);
-        const double c_i = py::float_(censoring[i]);
+
+        const double last_t = p0[0].cast<double>();
+        const double c_i = censoring[i].cast<double>();
         if (last_t >= c_i) {
             continue;
         }
-        const py::object last_s = py::reinterpret_borrow<py::object>(last[1]);
-        if (!alt_map.contains(last_s)) {
+        const py::object last_s = py::reinterpret_borrow<py::object>(p0[1]);
+        const auto it = alt_map.find(last_s);
+        if (it == alt_map.end()) {
             continue;
         }
-        for (const auto &k_h : alt_map[last_s]) {
-            const py::ssize_t k = py::cast<py::ssize_t>(k_h);
-            const py::tuple key = link_keys[k];
-            const py::ssize_t index = find_or_create(registry, buckets, keys, key);
-            Bucket &bucket = buckets[static_cast<size_t>(index)];
+        for (const py::ssize_t k : it->second) {
+            const auto idx = static_cast<size_t>(k);
+            if (!used[idx]) {
+                used[idx] = 1;
+                order.push_back(idx);
+            }
+            Bucket &bucket = buckets[idx];
             bucket.idxs.push_back(static_cast<int64_t>(i));
             bucket.t0s.push_back(last_t);
             bucket.t1s.push_back(c_i);
-            bucket.obs.push_back(false);
+            bucket.obs.push_back(0);
         }
     }
 
     py::dict out;
-    for (size_t k = 0; k < buckets.size(); ++k) {
+    for (const size_t k : order) {
         const Bucket &bucket = buckets[k];
-        out[keys[k]] = py::make_tuple(bucket.idxs, bucket.t0s, bucket.t1s, bucket.obs);
+        py::object key =
+            py::reinterpret_borrow<py::object>(link_keys[static_cast<py::ssize_t>(k)]);
+        out[key] = py::make_tuple(to_array(bucket.idxs), to_array(bucket.t0s),
+                                  to_array(bucket.t1s), to_mask(bucket.obs));
     }
     return out;
 }
 
-// Possible buckets: censored tails only. Returns key tuples to (idxs, t0s).
-py::dict build_remaining_buckets_raw(const py::list &trajectories,
+py::dict _build_remaining_buckets(const py::list &trajectories,
                                      const py::list &link_keys,
                                      const py::list &censoring) {
-    py::dict alt_map;
+    AltMap alt_map;
     std::vector<py::object> dest_states;
     build_alt_map(link_keys, alt_map, dest_states);
 
-    py::dict registry;
-    std::vector<Bucket> buckets;
-    std::vector<py::object> keys;
+    const size_t n_links = static_cast<size_t>(py::len(link_keys));
+    std::vector<Bucket> buckets(n_links);
+    std::vector<uint8_t> used(n_links, 0);
+    std::vector<size_t> order;
+    order.reserve(n_links);
 
     const py::ssize_t n = py::len(trajectories);
     for (py::ssize_t i = 0; i < n; ++i) {
@@ -170,41 +211,47 @@ py::dict build_remaining_buckets_raw(const py::list &trajectories,
         if (m == 0) {
             throw py::value_error("Trajectories must not be empty");
         }
-        const py::tuple last = trajectory[m - 1];
-        const double last_t = py::float_(last[0]);
-        const double c_i = py::float_(censoring[i]);
+        const py::tuple last = py::cast<py::tuple>(trajectory[m - 1]);
+        const double last_t = last[0].cast<double>();
+        const double c_i = censoring[i].cast<double>();
         if (last_t >= c_i) {
             continue;
         }
         const py::object last_s = py::reinterpret_borrow<py::object>(last[1]);
-        if (!alt_map.contains(last_s)) {
+        const auto it = alt_map.find(last_s);
+        if (it == alt_map.end()) {
             continue;
         }
-        for (const auto &k_h : alt_map[last_s]) {
-            const py::tuple key = link_keys[py::cast<py::ssize_t>(k_h)];
-            const py::ssize_t index = find_or_create(registry, buckets, keys, key);
-            Bucket &bucket = buckets[static_cast<size_t>(index)];
+        for (const py::ssize_t k : it->second) {
+            const auto idx = static_cast<size_t>(k);
+            if (!used[idx]) {
+                used[idx] = 1;
+                order.push_back(idx);
+            }
+            Bucket &bucket = buckets[idx];
             bucket.idxs.push_back(static_cast<int64_t>(i));
             bucket.t0s.push_back(last_t);
         }
     }
 
     py::dict out;
-    for (size_t k = 0; k < buckets.size(); ++k) {
+    for (const size_t k : order) {
         const Bucket &bucket = buckets[k];
-        out[keys[k]] = py::make_tuple(bucket.idxs, bucket.t0s);
+        py::object key =
+            py::reinterpret_borrow<py::object>(link_keys[static_cast<py::ssize_t>(k)]);
+        out[key] = py::make_tuple(to_array(bucket.idxs), to_array(bucket.t0s));
     }
     return out;
 }
 
 PYBIND11_MODULE(_surv_ext, m, py::mod_gil_not_used()) {
     m.doc() = "C++ survival bucket construction for jmstate.";
-    m.def("build_buckets_raw", &build_buckets_raw, py::arg("trajectories"),
+    m.def("_build_buckets", &_build_buckets, py::arg("trajectories"),
           "Group observed segments by (from_state, to_state).");
-    m.def("build_quad_buckets_raw", &build_quad_buckets_raw, py::arg("trajectories"),
+    m.def("_build_quad_buckets", &_build_quad_buckets, py::arg("trajectories"),
           py::arg("link_keys"), py::arg("censoring"),
           "Build vectorizable buckets with competing transitions and tails.");
-    m.def("build_remaining_buckets_raw", &build_remaining_buckets_raw,
+    m.def("_build_remaining_buckets", &_build_remaining_buckets,
           py::arg("trajectories"), py::arg("link_keys"), py::arg("censoring"),
           "Build censored-tail buckets.");
 }

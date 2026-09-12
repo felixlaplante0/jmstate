@@ -7,11 +7,11 @@ from jmstate.functions.base_hazards import Exponential
 from jmstate.types import SampleData
 from jmstate.types._data import ModelDataUnchecked
 from jmstate.utils._checks import check_finite
-from jmstate.utils._dtype import canonical_dtype_device, resolve_dtype
-from jmstate.utils._surv import (
-    build_buckets_raw,
-    build_quad_buckets_raw,
-    build_remaining_buckets_raw,
+from jmstate.utils._dtype import dtype_device, resolve_dtype
+from jmstate.utils._surv_ext import (
+    _build_buckets,
+    _build_quad_buckets,
+    _build_remaining_buckets,
 )
 
 from ._helpers import _data, _model
@@ -28,15 +28,15 @@ def test_extension():
     ]
     keys = [(1, 2), (1, 3), (3, 2)]
     censoring = [2.0, 2.0, 1.0, 2.0]
-    assert set(build_buckets_raw(trajs)) == {(1, 1), (1, 2), (1, 3), (3, 2)}
-    assert set(build_quad_buckets_raw(trajs, keys, censoring)) == {
+    assert set(_build_buckets(trajs)) == {(1, 1), (1, 2), (1, 3), (3, 2)}
+    assert set(_build_quad_buckets(trajs, keys, censoring)) == {
         (1, 2),
         (1, 3),
         (3, 2),
     }
-    assert set(build_remaining_buckets_raw(trajs, keys, censoring)) == {(3, 2)}
+    assert set(_build_remaining_buckets(trajs, keys, censoring)) == {(3, 2)}
     with pytest.raises(ValueError, match="empty"):
-        build_buckets_raw([[]])
+        _build_buckets([[]])
 
 
 def test_dtypes():
@@ -50,14 +50,14 @@ def test_canonical():
     model = _model()
     assert model.dtype == torch.float32
     assert model.device == torch.device("cpu")
-    assert canonical_dtype_device(model.params) == (
+    assert dtype_device(model.params) == (
         torch.float32,
         torch.device("cpu"),
     )
 
 
 def test_canonical_fallback():
-    assert canonical_dtype_device(torch.nn.Module()) == (
+    assert dtype_device(torch.nn.Module()) == (
         torch.get_default_dtype(),
         torch.device("cpu"),
     )

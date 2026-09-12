@@ -14,7 +14,7 @@ import torch
 from torch import nn
 
 __all__ = [
-    "canonical_dtype_device",
+    "dtype_device",
     "resolve_dtype",
 ]
 
@@ -22,7 +22,7 @@ __all__ = [
 MIN_FLOAT_DTYPE: torch.dtype = torch.float32
 
 
-def canonical_dtype_device(module: nn.Module) -> tuple[torch.dtype, torch.device]:
+def dtype_device(module: nn.Module) -> tuple[torch.dtype, torch.device]:
     """Gets the canonical dtype and device from a module's tensors.
 
     Args:

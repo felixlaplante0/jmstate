@@ -16,7 +16,7 @@ from tqdm import trange
 
 from ..types._data import ModelData, ModelDataUnchecked, ModelDesign
 from ..types._parameters import ModelParameters
-from ..utils._dtype import canonical_dtype_device, resolve_dtype
+from ..utils._dtype import dtype_device, resolve_dtype
 from ._hazard import HazardMixin
 from ._longitudinal import LongitudinalMixin
 from ._prior import PriorMixin
@@ -269,7 +269,7 @@ class FitMixin(PriorMixin, LongitudinalMixin, HazardMixin, MCMCMixin, nn.Module)
             return torch.cat([p.reshape(n, -1) for p in out.values()], dim=-1)  # type: ignore
 
         # Initialize accumulators on the model device in kernel precision
-        dtype, device = canonical_dtype_device(self.params)
+        dtype, device = dtype_device(self.params)
         working = resolve_dtype(dtype)
         mjac = torch.zeros(n, self.params.numel(), dtype=working, device=device)
         mb = torch.zeros(n, q, dtype=working, device=device)

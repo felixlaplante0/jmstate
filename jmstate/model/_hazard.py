@@ -19,7 +19,7 @@ from ..types._data import (
 from ..types._defs import LOG_CLAMP, Trajectory
 from ..types._parameters import ModelParameters
 from ..utils._checks import check_finite
-from ..utils._dtype import canonical_dtype_device, resolve_dtype
+from ..utils._dtype import dtype_device, resolve_dtype
 from ..utils._surv import build_remaining_buckets
 
 
@@ -91,7 +91,7 @@ class HazardMixin:
             tuple[torch.Tensor, torch.Tensor, torch.Tensor | None]: Aligned
                 covariates, individual parameters and conditioning times.
         """
-        dtype, device = canonical_dtype_device(self.params)
+        dtype, device = dtype_device(self.params)
         extra = [sample_data.x.dtype, sample_data.indiv_params.dtype]
         if sample_data.t_cond is not None:
             extra.append(sample_data.t_cond.dtype)

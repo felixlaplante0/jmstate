@@ -25,7 +25,7 @@ class PriorMixin:
             torch.Tensor: The computed log likelihoods.
         """
         random_prec_cholesky, random_prec_log_eigvals = (
-            self.params.random_prec._prec_cholesky_and_log_eigvals  # type: ignore
+            self.params.random_prec._prec_cholesky_log_eigvals  # type: ignore
         )
         random_quad_form = (b @ random_prec_cholesky).pow(2).sum(dim=-1)
         random_norm_factor = random_prec_log_eigvals.sum() - b.size(-1) * LOG_TWO_PI
