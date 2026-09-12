@@ -7,7 +7,9 @@ from typing import TYPE_CHECKING, Any, Self
 
 import torch
 from sklearn.base import BaseEstimator  # type: ignore
-from sklearn.utils._param_validation import validate_params  # type: ignore
+from sklearn.utils._param_validation import (  # type: ignore
+    validate_parameter_constraints,
+)
 from sklearn.utils.validation import (  # type: ignore
     check_consistent_length,  # type: ignore
 )
@@ -23,6 +25,24 @@ if TYPE_CHECKING:
 
 
 # Dataclasses
+def _validate_fields(instance: Any, constraints: dict[str, list[Any]]) -> None:
+    """Validates dataclass fields against scikit-learn parameter constraints.
+
+    Args:
+        instance (Any): The dataclass instance whose attributes are validated.
+        constraints (dict[str, list[Any]]): Mapping from field name to allowed
+            parameter constraints.
+
+    Raises:
+        ValueError: If any field violates its constraint.
+    """
+    validate_parameter_constraints(
+        constraints,
+        {name: getattr(instance, name) for name in constraints},
+        caller_name=type(instance).__name__,
+    )
+
+
 @dataclass
 class ModelDesign(BaseEstimator):
     r"""Dataclass encapsulating the design of a multistate joint model.
@@ -248,7 +268,8 @@ class ModelData(BaseEstimator):
                 and `y` for which NaN values are allowed.
             ValueError: If the size is not consistent between inputs.
         """
-        validate_params(
+        _validate_fields(
+            self,
             {
                 "x": [torch.Tensor],
                 "t": [torch.Tensor],
@@ -256,7 +277,6 @@ class ModelData(BaseEstimator):
                 "trajectories": [list],
                 "c": [torch.Tensor],
             },
-            prefer_skip_nested_validation=True,
         )
 
         check_trajectories(self.trajectories, self.c)
@@ -272,6 +292,27 @@ class ModelData(BaseEstimator):
         # Check NaNs between t and y
         if ((~self.y.isnan()).any(dim=-1) & self.t.isnan()).any():
             raise ValueError("NaN time values on non NaN y values are not allowed")
+
+
+def prepare_model_data(
+    data: ModelData, model: FitMixin | PredictMixin
+) -> ModelDataUnchecked:
+    """Returns an unchecked copy of the data prepared for a model.
+
+    Always builds a fresh :class:`ModelDataUnchecked`, so the input is never
+    mutated.
+
+    Args:
+        data (ModelData): The checked model data.
+        model (FitMixin | PredictMixin): The model owning the target dtype,
+            device and quadrature configuration.
+
+    Returns:
+        ModelDataUnchecked: The prepared model data.
+    """
+    return ModelDataUnchecked(
+        data.x, data.t, data.y, data.trajectories, data.c
+    ).prepare(model)
 
 
 @dataclass
@@ -440,14 +481,14 @@ class SampleData(BaseEstimator):
             ValueError: If any of the inputs contain inf or NaN values.
             ValueError: If the size is not consistent between inputs.
         """
-        validate_params(
+        _validate_fields(
+            self,
             {
                 "x": [torch.Tensor],
                 "trajectories": [list],
                 "indiv_params": [torch.Tensor],
                 "t_cond": [torch.Tensor, None],
             },
-            prefer_skip_nested_validation=True,
         )
 
         check_trajectories(self.trajectories, self.t_cond)

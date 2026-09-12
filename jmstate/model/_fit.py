@@ -14,7 +14,12 @@ from torch.nn.utils import parameters_to_vector
 from torch.nn.utils.stateless import _reparametrize_module  # type: ignore
 from tqdm import trange
 
-from ..types._data import ModelData, ModelDataUnchecked, ModelDesign
+from ..types._data import (
+    ModelData,
+    ModelDataUnchecked,
+    ModelDesign,
+    prepare_model_data,
+)
 from ..types._parameters import ModelParameters
 from ..utils._dtype import dtype_device
 from ._hazard import HazardMixin
@@ -170,9 +175,7 @@ class FitMixin(PriorMixin, LongitudinalMixin, HazardMixin, MCMCMixin, nn.Module)
         Returns:
             Self: The fitted model instance with estimated parameters.
         """
-        data = ModelDataUnchecked(
-            data.x, data.t, data.y, data.trajectories, data.c
-        ).prepare(self)
+        data = prepare_model_data(data, self)
 
         # Initialize MCMC
         self.sampler = self._init_sampler(data).run(self.n_warmup)
@@ -261,11 +264,13 @@ class FitMixin(PriorMixin, LongitudinalMixin, HazardMixin, MCMCMixin, nn.Module)
             named_parameters_dict: dict[str, torch.Tensor],
         ) -> torch.Tensor:
             with _reparametrize_module(self, named_parameters_dict):
-                return self.sampler.logpdfs_fn(self.sampler.b).mean(dim=0)  # type: ignore
+                logpdfs = self.sampler.logpdfs_fn(self.sampler.b)  # type: ignore
+                return logpdfs.mean(dim=0)
 
         def _jac_fn() -> torch.Tensor:
             out = _dict_jac_fn(dict(self.named_parameters()))  # type: ignore
-            return torch.cat([p.reshape(n, -1) for p in out.values()], dim=-1)  # type: ignore
+            parts = [p.reshape(n, -1) for p in out.values()]  # type: ignore
+            return torch.cat(parts, dim=-1)
 
         # Initialize accumulators on the model device in kernel precision
         dtype, device = dtype_device(self.params)
@@ -284,11 +289,9 @@ class FitMixin(PriorMixin, LongitudinalMixin, HazardMixin, MCMCMixin, nn.Module)
             mjac += _jac_fn().detach()  # type: ignore
 
             # Mean and outer product of b across chains
-            mb += self.sampler.b.mean(dim=0)  # type: ignore
-            mb2 += (
-                torch.einsum("ijk,ijl->jkl", self.sampler.b, self.sampler.b)  # type: ignore
-                / self.n_chains
-            )
+            b = self.sampler.b  # type: ignore
+            mb += b.mean(dim=0)
+            mb2 += torch.einsum("ijk,ijl->jkl", b, b) / self.n_chains
 
             self.sampler.run(self.n_subsample)  # type: ignore
 

@@ -16,6 +16,7 @@ from ..types._data import (
     ModelDataUnchecked,
     ModelDesign,
     SampleDataUnchecked,
+    prepare_model_data,
 )
 from ..types._defs import Trajectory
 from ..types._parameters import ModelParameters
@@ -117,7 +118,8 @@ class PredictMixin(HazardMixin, MCMCMixin):
         try:
             for i in trange(n_iter, desc=desc, disable=not bool(self.verbose)):
                 if double_monte_carlo:
-                    vector_to_parameters(sampled_params[i], self.params.parameters())  # type: ignore
+                    parameters = self.params.parameters()
+                    vector_to_parameters(sampled_params[i], parameters)  # type: ignore
                     sampler = self._init_sampler(data).run(self.n_warmup)
 
                 yield self.design.indiv_params_fn(
@@ -128,7 +130,8 @@ class PredictMixin(HazardMixin, MCMCMixin):
                     sampler.run(self.n_subsample)
         finally:
             if init_params is not None:
-                vector_to_parameters(init_params, self.params.parameters())  # type: ignore
+                parameters = self.params.parameters()
+                vector_to_parameters(init_params, parameters)  # type: ignore
 
     @torch.no_grad()  # type: ignore
     @validate_params(
@@ -182,9 +185,7 @@ class PredictMixin(HazardMixin, MCMCMixin):
         check_consistent_length(u, data)
 
         # Load and complete data
-        data = ModelDataUnchecked(
-            data.x, data.t, data.y, data.trajectories, data.c
-        ).prepare(self)
+        data = prepare_model_data(data, self)
         u = u.to(dtype=data.t.dtype, device=data.t.device)
 
         y_pred: list[torch.Tensor] = []
@@ -267,9 +268,7 @@ class PredictMixin(HazardMixin, MCMCMixin):
         u = torch.broadcast_to(u, (len(data), -1))
 
         # Load and complete data
-        data = ModelDataUnchecked(
-            data.x, data.t, data.y, data.trajectories, data.c
-        ).prepare(self)
+        data = prepare_model_data(data, self)
         u = u.to(dtype=data.t.dtype, device=data.t.device)
 
         surv_logps_pred: list[torch.Tensor] = []
@@ -346,9 +345,7 @@ class PredictMixin(HazardMixin, MCMCMixin):
         check_consistent_length(c, data)
 
         # Load and complete data
-        data = ModelDataUnchecked(
-            data.x, data.t, data.y, data.trajectories, data.c
-        ).prepare(self)
+        data = prepare_model_data(data, self)
         c = c.to(dtype=data.c.dtype, device=data.c.device)
 
         trajectories_pred: list[list[Trajectory]] = []

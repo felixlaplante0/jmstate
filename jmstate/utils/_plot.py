@@ -7,7 +7,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from numpy import atleast_1d
-from sklearn.utils._param_validation import validate_params  # type: ignore
+from sklearn.utils._param_validation import (  # type: ignore
+    validate_parameter_constraints,
+    validate_params,
+)
 
 if TYPE_CHECKING:
     from ..model._base import MultiStateJointModel
@@ -46,11 +49,10 @@ def plot_params_history(
     """
     from ..model._base import MultiStateJointModel  # noqa: PLC0415
 
-    validate_params(
-        {
-            "model": [MultiStateJointModel],
-        },
-        prefer_skip_nested_validation=True,
+    validate_parameter_constraints(
+        {"model": [MultiStateJointModel]},
+        {"model": model},
+        caller_name="plot_params_history",
     )
 
     if len(model.params_history_) <= 1:
@@ -66,7 +68,6 @@ def plot_params_history(
     fig, axes = plt.subplots(nrows, ncols, figsize=figsize)  # type: ignore
     axes = atleast_1d(axes).ravel()
 
-    # Move to CPU in float32: history entries may be on a device and low precision
     Y = torch.stack([h.detach().float().cpu() for h in model.params_history_])
     i = 0
     for ax, (name, val) in zip(axes, named_parameters_dict.items(), strict=False):
@@ -117,11 +118,10 @@ def plot_mcmc_diagnostics(
     """
     from ..model._base import MultiStateJointModel  # noqa: PLC0415
 
-    validate_params(
-        {
-            "model": [MultiStateJointModel],
-        },
-        prefer_skip_nested_validation=True,
+    validate_parameter_constraints(
+        {"model": [MultiStateJointModel]},
+        {"model": model},
+        caller_name="plot_mcmc_diagnostics",
     )
 
     if model.sampler is None:
@@ -134,7 +134,6 @@ def plot_mcmc_diagnostics(
     fig, axes = plt.subplots(1, 2, figsize=figsize)  # type: ignore
     axes = atleast_1d(axes).ravel()
 
-    # Move to CPU in float32: diagnostics may be on a device and low precision
     accept_rates = (
         torch.stack(model.sampler.diagnostics_["mean_accept_rate"])
         .detach()

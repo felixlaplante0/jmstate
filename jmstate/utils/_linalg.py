@@ -1,9 +1,9 @@
 """Log-Cholesky parametrization of precision matrices.
 
-Three representations are supported: ``"full"``, ``"diag"`` and
-``"spherical"``. Each one defines a mapping between the flat tensor stored for
-optimization and the lower-triangular Cholesky factor whose diagonal is in log
-scale. A single table drives both directions and the size validation.
+Three representations are supported: ``"full"``, ``"diag"`` and ``"spherical"``. Each
+one defines a mapping between the flat tensor stored for optimization and the
+lower-triangular Cholesky factor whose diagonal is in log scale. A single table drives
+both directions and the size validation.
 """
 
 from collections.abc import Callable
