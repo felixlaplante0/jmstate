@@ -46,5 +46,5 @@ The :class:`~jmstate.types.ModelDesign` object defines the individual-effects,
 regression, and transition-link functions. ``ModelParameters`` holds population
 effects, precision parameters, baseline hazards, and transition coefficients.
 
-Next, read the :doc:`model-guide` or work through the :doc:`paquid` and
-:doc:`simulated` analyses.
+Next, read the :doc:`model-guide` or work through the :doc:`paquid-test` and
+:doc:`fitting-test` analyses.
