@@ -1,10 +1,9 @@
-name: Test
+name: tests
 
 on:
   workflow_dispatch:
   push:
-    tags:
-      - "v*"
+  pull_request:
 
 permissions:
   contents: read
@@ -12,28 +11,30 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
-    container:
-      image: python:3.13
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
-      - name: Install C++ compiler
-        run: apt-get update && apt-get install -y g++
-      - name: Install package and test dependencies
-        run: pip install ".[test]" --extra-index-url https://download.pytorch.org/whl/cpu
+        uses: actions/checkout@v7
+      - name: Install uv
+        uses: astral-sh/setup-uv@v9
+        with:
+          enable-cache: true
+      - name: Install Python
+        run: uv python install 3.13
+      - name: Install dependencies
+        run: uv sync --locked --extra test --python 3.13
       - name: Run tests with coverage
         run: |
           cp -r tests /tmp/tests
           cd /tmp
-          python -m pytest -v tests --cov=jmstate --cov-report=term-missing --cov-report=xml:"$GITHUB_WORKSPACE/coverage.xml"
+          uv run --project "$GITHUB_WORKSPACE" python -m pytest -v tests --cov=jmstate --cov-report=term-missing --cov-report=xml:"$GITHUB_WORKSPACE/coverage.xml"
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v7
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: coverage.xml
           fail_ci_if_error: true
       - name: Upload coverage report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-report
           path: coverage.xml
