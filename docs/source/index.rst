@@ -10,7 +10,7 @@ jmstate
      <p class="hero-copy">jmstate connects longitudinal biomarkers and multi-state event histories through shared random effects, automatic differentiation, and parametric baseline hazards.</p>
      <div class="hero-actions">
        <a class="primary" href="getting-started.html">Get started</a>
-       <a class="secondary" href="paquid.html">See the examples</a>
+       <a class="secondary" href="paquid-test.html">See the examples</a>
      </div>
    </section>
 
@@ -68,14 +68,10 @@ Explore jmstate
       Read the model specification and understand the estimation workflow.
 
    .. grid-item-card:: Examples
-      :link: paquid
+      :link: paquid-test
       :link-type: doc
 
       Reproduce the PAQUID and simulated analyses from the repository scripts.
-
-.. raw:: html
-
-   <p><a class="tutorial-link" href="https://github.com/felixlaplante0/jmstate/blob/main/scripts/fitting-test.ipynb">Open the simulated notebook source on GitHub</a> &middot; <a class="tutorial-link" href="https://github.com/felixlaplante0/jmstate/blob/main/scripts/paquid-test.ipynb">Open the PAQUID notebook source on GitHub</a></p>
 
 .. toctree::
    :hidden:
