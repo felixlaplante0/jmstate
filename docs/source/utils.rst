@@ -11,5 +11,6 @@ Utils
    :recursive:
 
    build_buckets
+   confidence_interval
    plot_mcmc_diagnostics
    plot_params_history

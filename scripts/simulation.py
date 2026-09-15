@@ -22,7 +22,6 @@ from collections import defaultdict
 from collections.abc import Callable, Sequence
 from dataclasses import replace
 from pathlib import Path
-from statistics import NormalDist
 from time import perf_counter
 from typing import Any
 
@@ -43,6 +42,7 @@ from jmstate.types import (
     PrecisionParameters,
     SampleData,
 )
+from jmstate.utils import confidence_interval
 
 ROOT = Path(__file__).resolve().parent.parent
 RESULTS = ROOT / "results"
@@ -53,7 +53,7 @@ N_TIMES = 20
 MAX_ITER = 2000
 LEARNING_RATE = 0.1
 SEED = 42
-COVERAGE_Z = NormalDist().inv_cdf(0.975)
+COVERAGE_LEVEL = 0.95
 
 
 # --------------------------------------------------------------------------- #
@@ -356,8 +356,8 @@ def convergence_table(results: dict[str, list[dict[str, Any]]], n: int) -> pd.Da
     """
     vectors = torch.stack([record["vec"] for record in results["correct"]])
     stderrs = torch.stack([record["se"] for record in results["correct"]])
-    truth = parameters_to_vector(TRUE_PARAMETERS.parameters()).detach().numpy()
-    errors = vectors.numpy() - truth
+    truth = parameters_to_vector(TRUE_PARAMETERS.parameters()).detach()
+    errors = (vectors - truth).numpy()
     n_reps = errors.shape[0]
 
     bias = errors.mean(axis=0)
@@ -366,11 +366,11 @@ def convergence_table(results: dict[str, list[dict[str, Any]]], n: int) -> pd.Da
     mse_se = (errors**2).std(axis=0, ddof=1) / np.sqrt(n_reps)
     rmse_se = mse_se / (2.0 * rmse)
 
-    se = stderrs.numpy()
-    valid = np.isfinite(se)
-    covered = np.abs(errors) <= COVERAGE_Z * se
-    successes = np.where(valid, covered, False).sum(axis=0)
-    totals = valid.sum(axis=0)
+    lower, upper = confidence_interval(vectors, stderrs, level=COVERAGE_LEVEL)
+    available = torch.isfinite(stderrs)
+    covered = (truth >= lower) & (truth <= upper) & available
+    successes = covered.sum(dim=0).numpy()
+    totals = available.sum(dim=0).numpy()
     coverage = np.divide(
         successes,
         totals,
@@ -394,7 +394,7 @@ def convergence_table(results: dict[str, list[dict[str, Any]]], n: int) -> pd.Da
         {
             "n": n,
             "parameter": names,
-            "True value": truth,
+            "True value": truth.numpy(),
             "Bias": bias,
             "Bias sd": bias_se,
             "RMSE": rmse,

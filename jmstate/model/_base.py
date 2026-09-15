@@ -17,6 +17,7 @@ from torch.nn.utils import parameters_to_vector
 from ..types._data import ModelData, ModelDesign
 from ..types._parameters import ModelParameters
 from ..utils._dtype import dtype_device, model_dtype
+from ..utils._stats import confidence_interval
 from ._fit import FitMixin
 from ._predict import PredictMixin
 from ._sampler import MetropolisWithinGibbsSampler
@@ -361,6 +362,27 @@ class MultiStateJointModel(BaseEstimator, FitMixin, PredictMixin):
             )
 
         return self.fim_.inverse().diag().sqrt()
+
+    def conf_int(self, level: float = 0.95) -> tuple[torch.Tensor, torch.Tensor]:
+        r"""Computes Wald confidence intervals for the model parameters.
+
+        The bounds are built from :attr:`stderr` and therefore inherit its handling
+        of an unavailable Fisher Information Matrix.
+
+        .. math::
+            \hat{\theta} \pm z_{(1 + \mathrm{level}) / 2}
+            \sqrt{\operatorname{diag}\left( \hat{\mathcal{I}}_n
+            (\hat{\theta})^{-1} \right)}
+
+        Args:
+            level (float, optional): Confidence level in ``(0, 1)``. Defaults to 0.95.
+
+        Returns:
+            tuple[torch.Tensor, torch.Tensor]: Lower and upper bounds, each a vector
+                with one entry per parameter.
+        """
+        vector = parameters_to_vector(self.params.parameters())
+        return confidence_interval(vector, self.stderr, level)
 
     def summary(self):
         r"""Print a statistical summary of the fitted multistate joint model.
