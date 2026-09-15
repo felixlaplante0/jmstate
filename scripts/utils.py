@@ -36,7 +36,7 @@ HORIZON_FRACTIONS = (0.2, 0.3, 0.5)
 def resolve_device(preferred: torch.device | str | None = None) -> torch.device:
     """Picks a compute device according to availability.
 
-    Priority is CUDA, then XPU, then MPS, then TPU via ``torch_xla``,
+    Priority is GPU (CUDA), then XPU, then TPU via ``torch_xla``, then MPS,
     falling back to CPU. Pass ``preferred`` to force a specific device
     (e.g. ``"cpu"`` for reproducibility).
 
@@ -53,16 +53,16 @@ def resolve_device(preferred: torch.device | str | None = None) -> torch.device:
         return torch.device("cuda")
     if hasattr(torch, "xpu") and torch.xpu.is_available():  # type: ignore[attr-defined]
         return torch.device("xpu")
-    backends = getattr(torch, "backends", None)
-    mps = getattr(backends, "mps", None)
-    if mps is not None and mps.is_available():
-        return torch.device("mps")
     try:
         import torch_xla.core.xla_model as xm  # type: ignore[import-not-found]
 
         return xm.xla_device()
     except (ImportError, RuntimeError, OSError):
         pass
+    backends = getattr(torch, "backends", None)
+    mps = getattr(backends, "mps", None)
+    if mps is not None and mps.is_available():
+        return torch.device("mps")
     return torch.device("cpu")
 
 

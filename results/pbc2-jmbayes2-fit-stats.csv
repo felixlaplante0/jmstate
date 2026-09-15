@@ -1,0 +1,10 @@
+"statistic","value"
+"conditional.DIC",4125.32375871994
+"conditional.pD",630.170209132252
+"conditional.LPML",-2195.70555596708
+"conditional.WAIC",3956.1425705215
+"marginal.DIC",3559.41144233384
+"marginal.pD",321.387768960723
+"marginal.LPML",-2513.23424883986
+"marginal.WAIC",4442.61848311049
+"elapsed_seconds",17.723
