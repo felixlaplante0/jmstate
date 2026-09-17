@@ -5,6 +5,10 @@ the repo lives on the `jmstate` Volume mounted at `/mnt/jmstate`; the runner
 executes **one** notebook headless with `nbconvert` and saves it **with
 outputs** back onto the volume.
 
+`jmstate` itself is installed from PyPI, pinned in `scripts/requirements.txt`.
+To run new jmstate code on Modal, tag a release and bump that pin — the
+`jmstate/` directory uploaded on the volume is not imported.
+
 ## Setup (once)
 
 ```bash
