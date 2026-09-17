@@ -16,6 +16,7 @@ from torch import nn
 from jmstate.functions.base_hazards import Neural
 from jmstate.utils import plot_mcmc_diagnostics, plot_params_history
 
+ROOT = Path(__file__).resolve().parents[2]
 PLOT_STYLE = {
     "font.size": 14,
     "axes.titlesize": 16,
