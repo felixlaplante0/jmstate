@@ -13,10 +13,10 @@ image = modal.Image.debian_slim(python_version="3.14").uv_pip_install(
     "ipykernel",
     requirements=[str(REPO / "scripts" / "requirements.txt")],
 )
-repo = modal.Volume.from_name("jmstate", create_if_missing=True)
+ROOT = modal.Volume.from_name("jmstate", create_if_missing=True)
 
 
-@app.function(gpu="T4", image=image, volumes={"/mnt/jmstate": repo}, timeout=36000)
+@app.function(gpu="T4", image=image, volumes={"/mnt/jmstate": ROOT}, timeout=36000)
 def run_notebook(notebook: str):
     """Execute one repo notebook headless and save it with outputs."""
     subprocess.run(  # noqa: S603
@@ -33,7 +33,7 @@ def run_notebook(notebook: str):
         cwd="/mnt/jmstate/scripts",
         check=True,
     )
-    repo.commit()
+    ROOT.commit()
 
 
 @app.local_entrypoint()
