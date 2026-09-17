@@ -400,27 +400,3 @@ def transition_survival_data(
         observed_time = event_time if events[index] else censoring[index]
         times[index] = max(0.0, observed_time - landmark)
     return eligible, times, events, initial_states
-
-
-def aggregate_metrics(
-    records: Sequence[dict[str, Any]], group_columns: Sequence[str]
-) -> pd.DataFrame:
-    """Aggregate metric records by mean, standard deviation, and valid count.
-
-    Args:
-        records (Sequence[dict[str, Any]]): Per-fold metric records.
-        group_columns (Sequence[str]): Columns used for grouping.
-
-    Returns:
-        pd.DataFrame: Aggregated frame with ``mean_*``, ``sd_*``, and
-            ``n_valid_*`` columns.
-    """
-    frame = pd.DataFrame(records)
-    metric_columns = ["auc_ipcw", "c_index_ipcw", "brier_ipcw"]
-    grouped = frame.groupby(list(group_columns), dropna=False)
-    result = grouped.size().rename("n_records").to_frame()
-    for metric in metric_columns:
-        result[f"mean_{metric}"] = grouped[metric].mean()
-        result[f"sd_{metric}"] = grouped[metric].std()
-        result[f"n_valid_{metric}"] = grouped[metric].count()
-    return result.reset_index()
