@@ -5,7 +5,7 @@ from pathlib import Path
 
 import modal
 
-app = modal.App("jmstate-t4")
+app = modal.App("jmstate")
 image = (
     modal.Image.debian_slim(python_version="3.14")
     .apt_install("git")
