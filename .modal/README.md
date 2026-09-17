@@ -23,12 +23,25 @@ modal volume put jmstate . /
 
 ## Use
 
+Launch detached so you can close your computer; the run continues on Modal:
+
 ```bash
-uv run --with modal .modal/jmstate-modal.py --notebook fitting-test
+modal run --detach .modal/jmstate-modal.py --notebook fitting-test
 ```
 
 Only the `--notebook` you name runs; the rest is just uploaded, never executed.
-Logs stream; to close your terminal, launch it inside a local tmux first.
+
+## Progress
+
+Detaching prints an app ID. Stream the run's logs with it:
+
+```bash
+modal app logs ap-xxxxxxxx -f
+```
+
+Live logs show function output (start, errors, finish). The notebooks'
+`tqdm` bars are captured per cell, so the full bars are in the executed
+notebook afterwards — pull it from `results/` (see below).
 
 ## Results
 

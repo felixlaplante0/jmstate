@@ -1,6 +1,5 @@
 """Run one jmstate notebook on a T4, repo untouched."""
 
-import argparse
 import subprocess
 from pathlib import Path
 
@@ -37,22 +36,12 @@ def run_notebook(notebook: str):
     repo.commit()
 
 
-def main() -> None:
-    """Parse CLI args and launch the notebook on Modal."""
-    parser = argparse.ArgumentParser(description="Run a jmstate notebook on a Modal T4.")
-    parser.add_argument(
-        "--notebook", default="fitting-test", help="notebook in scripts/, without .ipynb"
-    )
-    parsed = parser.parse_args()
-    with app.run():
-        run_notebook.remote(parsed.notebook)
+@app.local_entrypoint()
+def main(notebook: str = "fitting-test"):
+    """Launch the notebook on Modal."""
+    run_notebook.remote(notebook)
     print("Executed notebook is on the volume. Pull it with:")  # noqa: T201
     print("  modal volume ls jmstate results")  # noqa: T201
     print(  # noqa: T201
-        "  modal volume get jmstate "
-        "results/<notebook>-executed.ipynb <local-path>"
+        "  modal volume get jmstate results/<notebook>-executed.ipynb <local-path>"
     )
-
-
-if __name__ == "__main__":
-    main()
