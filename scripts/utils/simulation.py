@@ -301,6 +301,7 @@ def run_replications(
     for _ in trange(n_reps, desc=f"n={n}", leave=False):
         data_more = ModelData(*gen_data(n, N_TIMES, TRUE_MODEL))
         data = replace(data_more, x=data_more.x[:, [0]])
+
         for name, (factory, design) in MODELS.items():
             vector, stderr, aic, bic, fit_time, summary_time = get_vector_and_scores(
                 factory, design, data_more if name == "more" else data, device
