@@ -9,7 +9,7 @@ import modal
 REPO = Path(__file__).resolve().parent.parent
 
 app = modal.App("jmstate-t4")
-image = modal.Image.debian_slim(python_version="3.11").uv_pip_install(
+image = modal.Image.debian_slim(python_version="3.14").uv_pip_install(
     "nbconvert",
     "ipykernel",
     requirements=[str(REPO / "scripts" / "requirements.txt")],
