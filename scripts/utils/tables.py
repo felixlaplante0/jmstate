@@ -12,7 +12,6 @@ from jmstate.types import ModelParameters
 from jmstate.utils import confidence_interval
 
 try:
-    from .utils import resolve_device
     from .simulation import (
         COVERAGE_LEVEL,
         MODELS,
@@ -23,8 +22,8 @@ try:
         TRUE_PARAMETERS,
         run_replications,
     )
+    from .utils import resolve_device
 except ImportError:  # run as a script: python scripts/utils/tables.py
-    from utils import resolve_device
     from simulation import (
         COVERAGE_LEVEL,
         MODELS,
@@ -35,6 +34,7 @@ except ImportError:  # run as a script: python scripts/utils/tables.py
         TRUE_PARAMETERS,
         run_replications,
     )
+    from utils import resolve_device
 
 
 def convergence_table(
