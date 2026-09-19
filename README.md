@@ -67,13 +67,9 @@ The model parameters own the canonical dtype and device. Data tensors are
 aligned to them automatically, so GPU/XPU and low precision just work:
 
 ```python
-model.to("xpu", torch.bfloat16)  # or .cuda(), .float(), .double(), ...
+model.to("xpu")  # or .cuda(), .float(), .double(), ...
 model.fit(data)  # data follows the model, no manual casts needed
 ```
-
-`bfloat16`/`float16` parameters are supported with mixed precision: times,
-quadrature and critical kernels transparently run in `float32` or higher.
-Call `.to(...)` before creating the optimizer, as usual in PyTorch.
 
 ## Citation
 
