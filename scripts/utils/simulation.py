@@ -3,9 +3,8 @@
 Four candidate models are fitted to synthetic longitudinal and multistate data
 of increasing sample size: a correctly specified model, an under-specified one,
 an over-specified one, and a model with a misspecified link. Tables are built
-by ``tables.py``, which also runs the whole study::
-
-    python scripts/utils/tables.py
+by ``tables.py``; the study loop itself runs inline in
+``scripts/fitting-test.ipynb`` so partial results can be checkpointed.
 """
 
 from collections import defaultdict
@@ -14,6 +13,7 @@ from dataclasses import replace
 from pathlib import Path
 from time import perf_counter
 from typing import Any
+from warnings import warn
 
 import torch
 from torch.distributions import MultivariateNormal
@@ -249,7 +249,9 @@ def get_vector_and_scores(
 
     Returns:
         tuple: ``(parameter vector, standard errors, AIC, BIC, fit time,
-            summary time)``.
+            summary time)``. Failed fits return NaN entries (and ``None`` for
+            BIC) instead of raising, so one divergent replication cannot abort
+            a long study.
     """
     parameters = parameters_factory()
     optimizer = torch.optim.Adam(parameters.parameters(), lr=LEARNING_RATE)
@@ -257,22 +259,40 @@ def get_vector_and_scores(
         design, parameters, optimizer, max_iter=MAX_ITER, verbose=False
     ).to(device)
 
-    start = perf_counter()
-    model.fit(data)
-    fit_time = perf_counter() - start
+    try:
+        start = perf_counter()
+        model.fit(data)
+        fit_time = perf_counter() - start
 
-    start = perf_counter()
-    model.compute_summary()
-    summary_time = perf_counter() - start
+        start = perf_counter()
+        model.compute_summary()
+        summary_time = perf_counter() - start
 
-    return (
-        parameters_to_vector(model.parameters()).detach().cpu(),
-        model.stderr.detach().cpu(),
-        model.aic_,
-        model.bic_,
-        fit_time,
-        summary_time,
-    )
+        vector = parameters_to_vector(model.parameters()).detach().cpu()
+        try:
+            stderr = model.stderr.detach().cpu()
+        except (RuntimeError, ValueError):
+            stderr = torch.full_like(vector, float("nan"))
+        return (
+            vector,
+            stderr,
+            model.aic_,
+            model.bic_,
+            fit_time,
+            summary_time,
+        )
+    except Exception as exc:  # noqa: BLE001 - one bad fit must not kill the study
+        warn(f"Fit failed and is recorded as NaN: {exc!r}", stacklevel=2)
+        dim = parameters_to_vector(parameters.parameters()).numel()
+        nan_vector = torch.full((dim,), float("nan"))
+        return (
+            nan_vector,
+            nan_vector.clone(),
+            float("nan"),
+            None,
+            float("nan"),
+            float("nan"),
+        )
 
 
 def run_replications(

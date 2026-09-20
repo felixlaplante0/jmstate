@@ -305,13 +305,28 @@ class FitMixin(PriorMixin, LongitudinalMixin, HazardMixin, MCMCMixin, nn.Module)
         # Fit Gaussian proposals to the posterior moments
         covs = mb2 - torch.einsum("ij,ik->ijk", mb, mb)
         covs = 0.5 * (covs + covs.mT)
+        # A divergent fit can leave the posterior moments non-finite. Sanitize
+        # them so the proposal stays valid; the failure then surfaces as a NaN
+        # likelihood instead of a crash.
+        mb = torch.nan_to_num(mb, nan=0.0, posinf=1e6, neginf=-1e6)
+        covs = torch.nan_to_num(covs, nan=0.0, posinf=1e6, neginf=0.0)
+        covs = 0.5 * (covs + covs.mT)
         try:
             proposal = MultivariateNormal(mb, covariance_matrix=covs)
-        except ValueError:
+        except (ValueError, RuntimeError):
             # Empirical covariance may be singular; add a small relative jitter
             jitter = 1e-6 * covs.diagonal(dim1=-2, dim2=-1).mean().clamp(min=1e-6)
             eye = torch.eye(q, dtype=covs.dtype, device=covs.device)
-            proposal = MultivariateNormal(mb, covariance_matrix=covs + jitter * eye)
+            try:
+                proposal = MultivariateNormal(
+                    mb, covariance_matrix=covs + jitter * eye
+                )
+            except (ValueError, RuntimeError):
+                # Last resort: diagonal proposal with floored variances
+                var = covs.diagonal(dim1=-2, dim2=-1).clamp(min=1e-6)
+                proposal = MultivariateNormal(
+                    mb, covariance_matrix=torch.diag_embed(var)
+                )
 
         # Estimate each subject's marginal likelihood in bounded-memory batches
         log_weight_sum = torch.full((n,), -torch.inf, dtype=working, device=device)

@@ -348,6 +348,19 @@ class MultiStateJointModel(BaseEstimator, FitMixin, PredictMixin):
                 "compute_summary() first."
             )
 
+        if not torch.isfinite(self.fim_).all():
+            warn(
+                "The Fisher information matrix contains non-finite values; "
+                "standard errors are unavailable.",
+                stacklevel=2,
+            )
+            return torch.full(
+                (self.fim_.size(0),),
+                torch.nan,
+                dtype=self.fim_.dtype,
+                device=self.fim_.device,
+            )
+
         if torch.linalg.matrix_rank(self.fim_) < self.fim_.size(0):
             warn(
                 "The Fisher information matrix is singular; standard errors are "
@@ -361,7 +374,20 @@ class MultiStateJointModel(BaseEstimator, FitMixin, PredictMixin):
                 device=self.fim_.device,
             )
 
-        return self.fim_.inverse().diag().sqrt()
+        try:
+            return self.fim_.inverse().diag().sqrt()
+        except RuntimeError:
+            warn(
+                "The Fisher information matrix could not be inverted; standard "
+                "errors are unavailable.",
+                stacklevel=2,
+            )
+            return torch.full(
+                (self.fim_.size(0),),
+                torch.nan,
+                dtype=self.fim_.dtype,
+                device=self.fim_.device,
+            )
 
     def conf_int(self, level: float = 0.95) -> tuple[torch.Tensor, torch.Tensor]:
         r"""Computes Wald confidence intervals for the model parameters.

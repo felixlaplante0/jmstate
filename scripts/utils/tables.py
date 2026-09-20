@@ -1,7 +1,12 @@
-"""Result tables and study runner for the jmstate simulation study."""
+"""Result tables for the jmstate simulation study.
+
+The study loop itself runs inline in ``scripts/fitting-test.ipynb`` (with a
+CSV checkpoint after each sample size); this module only builds the tables.
+"""
 
 from collections.abc import Sequence
 from typing import Any
+from warnings import catch_warnings, simplefilter
 
 import numpy as np
 import pandas as pd
@@ -10,31 +15,6 @@ from torch.nn.utils import parameters_to_vector
 
 from jmstate.types import ModelParameters
 from jmstate.utils import confidence_interval
-
-try:
-    from .simulation import (
-        COVERAGE_LEVEL,
-        MODELS,
-        N_REPS,
-        N_VALUES,
-        RESULTS,
-        SEED,
-        TRUE_PARAMETERS,
-        run_replications,
-    )
-    from .utils import resolve_device
-except ImportError:  # run as a script: python scripts/utils/tables.py
-    from simulation import (
-        COVERAGE_LEVEL,
-        MODELS,
-        N_REPS,
-        N_VALUES,
-        RESULTS,
-        SEED,
-        TRUE_PARAMETERS,
-        run_replications,
-    )
-    from utils import resolve_device
 
 
 def convergence_table(
@@ -63,13 +43,22 @@ def convergence_table(
     stderrs = torch.stack([record["se"] for record in results["correct"]])
     truth = parameters_to_vector(parameters.parameters()).detach()
     errors = (vectors - truth).numpy()
-    n_reps = errors.shape[0]
-
-    bias = errors.mean(axis=0)
-    rmse = np.sqrt(np.mean(errors**2, axis=0))
-    bias_se = errors.std(axis=0, ddof=1) / np.sqrt(n_reps)
-    mse_se = (errors**2).std(axis=0, ddof=1) / np.sqrt(n_reps)
-    rmse_se = mse_se / (2.0 * rmse)
+    # Failed replications are stored as NaN; use NaN-aware statistics so one
+    # bad fit cannot poison the whole table.
+    with catch_warnings():
+        simplefilter("ignore", RuntimeWarning)
+        valid = np.count_nonzero(~np.isnan(errors), axis=0)
+        bias = np.nanmean(errors, axis=0)
+        mse = np.nanmean(errors**2, axis=0)
+        rmse = np.sqrt(mse)
+        bias_se = np.nanstd(errors, axis=0, ddof=1) / np.sqrt(valid)
+        mse_se = np.nanstd(errors**2, axis=0, ddof=1) / np.sqrt(valid)
+    rmse_se = np.divide(
+        mse_se,
+        2.0 * rmse,
+        out=np.full(mse_se.shape, np.nan),
+        where=rmse > 0,
+    )
 
     lower, upper = confidence_interval(vectors, stderrs, level=level)
     available = torch.isfinite(stderrs)
@@ -124,8 +113,12 @@ def selection_table(
         pd.DataFrame: One row per candidate model.
     """
     names = list(names)
+    # Failed fits are stored as NaN/None; coerce to NaN so they are skipped by
+    # idxmin instead of raising.
     aic = pd.DataFrame({name: [r["aic"] for r in results[name]] for name in names})
     bic = pd.DataFrame({name: [r["bic"] for r in results[name]] for name in names})
+    aic = aic.apply(pd.to_numeric, errors="coerce")
+    bic = bic.apply(pd.to_numeric, errors="coerce")
     fit_times = pd.DataFrame(
         {name: [r["fit_time"] for r in results[name]] for name in names}
     )
@@ -133,12 +126,13 @@ def selection_table(
         {name: [r["summary_time"] for r in results[name]] for name in names}
     )
 
-    counts = pd.DataFrame(
-        {
-            "AIC": aic.idxmin(axis=1).value_counts(),
-            "BIC": bic.idxmin(axis=1).value_counts(),
-        }
-    )
+    def _wins(frame: pd.DataFrame) -> pd.Series:
+        winners = frame.apply(
+            lambda row: row.idxmin() if row.notna().any() else None, axis=1
+        )
+        return winners.value_counts()
+
+    counts = pd.DataFrame({"AIC": _wins(aic), "BIC": _wins(bic)})
     counts = counts.reindex(names, fill_value=0).fillna(0).astype(int)
     counts.index.name = "model"
     counts["Fit mean (s)"] = fit_times.mean()
@@ -173,44 +167,3 @@ def aggregate_metrics(
         result[f"sd_{metric}"] = grouped[metric].std()
         result[f"n_valid_{metric}"] = grouped[metric].count()
     return result.reset_index()
-
-
-def run_study(
-    n_values: Sequence[int] = N_VALUES,
-    n_reps: int = N_REPS,
-    device: torch.device | str | None = None,
-    seed: int = SEED,
-) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Run the study for every sample size and write both result tables.
-
-    Args:
-        n_values (Sequence[int]): Sample sizes to simulate. Defaults to ``N_VALUES``.
-        n_reps (int): Number of replications per sample size. Defaults to ``N_REPS``.
-        device (torch.device | str | None): Target device; auto-selected when None.
-        seed (int): Random seed. Defaults to ``SEED``.
-
-    Returns:
-        tuple[pd.DataFrame, pd.DataFrame]: The convergence and selection tables.
-    """
-    device = resolve_device(device)
-    print(f"Using device: {device}")
-
-    convergence, selection = [], []
-    for n in n_values:
-        results = run_replications(n, n_reps, device, seed)
-        convergence.append(
-            convergence_table(results, n, TRUE_PARAMETERS, COVERAGE_LEVEL)
-        )
-        selection.append(selection_table(results, n, list(MODELS)))
-
-    convergence_df = pd.concat(convergence, ignore_index=True)
-    selection_df = pd.concat(selection, ignore_index=True)
-    convergence_df.to_csv(RESULTS / "convergence-results.csv", index=False)
-    selection_df.to_csv(RESULTS / "selection-results.csv", index=False)
-    return convergence_df, selection_df
-
-
-if __name__ == "__main__":
-    convergence, selection = run_study()
-    print(convergence)  # noqa: T201
-    print(selection)  # noqa: T201
