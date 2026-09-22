@@ -41,8 +41,6 @@ RESULTS = ROOT / "results"
 N_VALUES = (100, 500, 2000)
 N_REPS = 100
 N_TIMES = 20
-MAX_ITER = 2000
-LEARNING_RATE = 0.1
 SEED = 42
 COVERAGE_LEVEL = 0.95
 
@@ -254,9 +252,9 @@ def get_vector_and_scores(
             a long study.
     """
     parameters = parameters_factory()
-    optimizer = torch.optim.Adam(parameters.parameters(), lr=LEARNING_RATE)
+    optimizer = torch.optim.Adam(parameters.parameters(), lr=0.05)
     model = MultiStateJointModel(
-        design, parameters, optimizer, max_iter=MAX_ITER, verbose=False
+        design, parameters, optimizer, max_iter=10000, verbose=False
     ).to(device)
 
     try:
