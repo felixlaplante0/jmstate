@@ -1,5 +1,3 @@
-"""Log-Cholesky parametrization of precision matrices."""
-
 from collections.abc import Callable
 from typing import Final
 
