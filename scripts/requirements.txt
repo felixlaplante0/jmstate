@@ -1,5 +1,4 @@
 jmstate==0.19.1
-efficient-kan @ git+https://github.com/Blealtan/efficient-kan.git@7b6ce1c87f18c8bc90c208f6b494042344216b11
 pandas>=2,<4
 scikit-survival==0.28.0
 seaborn
