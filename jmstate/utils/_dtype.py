@@ -1,11 +1,4 @@
-"""Dtype and device resolution utilities.
-
-The model parameters own the canonical dtype and device. Only ``torch.float32`` and
-``torch.float64`` are supported: the model dtype is validated from its parameters, and
-data tensors are aligned to it once in ``prepare`` so that likelihood code performs no
-per-call transfers or casts. Model-free utilities fall back to ``torch``'s default
-dtype, restricted to the same two dtypes.
-"""
+"""Dtype and device resolution utilities."""
 
 from __future__ import annotations
 
