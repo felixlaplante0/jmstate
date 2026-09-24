@@ -1,9 +1,7 @@
-from functools import cache
 from math import isfinite
 from numbers import Integral
 from typing import Any
 
-import numpy as np
 import torch
 from sklearn.utils._param_validation import Interval, validate_params  # type: ignore
 from sklearn.utils.validation import (  #  type: ignore
@@ -20,19 +18,7 @@ from ..types._defs import LOG_CLAMP, Trajectory
 from ..types._parameters import ModelParameters
 from ..utils._checks import check_finite
 from ..utils._dtype import dtype_device
-from ..utils._surv import build_remaining_buckets
-
-
-@cache
-def _quad_tensors(
-    n_quad: int, dtype: torch.dtype, device: torch.device
-) -> tuple[torch.Tensor, torch.Tensor]:
-    """Gets cached Gauss-Legendre nodes ``(1, q)`` and weights ``(q,)``."""
-    nodes, weights = np.polynomial.legendre.leggauss(n_quad)  # type: ignore
-    return (
-        torch.tensor(nodes, dtype=dtype, device=device).unsqueeze(0),
-        torch.tensor(weights, dtype=dtype, device=device),
-    )
+from ..utils._surv import _quad_tensors, build_remaining_buckets
 
 
 class HazardMixin:
@@ -55,28 +41,13 @@ class HazardMixin:
         Args:
             n_quad (int): Number of quadrature nodes.
             n_bisect (int): The number of bisection steps.
+            *args (Any): Positional arguments forwarded to the next mixin.
+            **kwargs (Any): Keyword arguments forwarded to the next mixin.
         """
         super().__init__(*args, **kwargs)
 
         self.n_quad = n_quad
         self.n_bisect = n_bisect
-
-    def _quad_nodes_weights(
-        self, dtype: torch.dtype, device: torch.device
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Gets quadrature nodes and weights on the target dtype/device.
-
-        Tensors are cached per configuration so repeated calls perform no
-        rebuilds or transfers.
-
-        Args:
-            dtype (torch.dtype): Working dtype.
-            device (torch.device): Target device.
-
-        Returns:
-            tuple[torch.Tensor, torch.Tensor]: The nodes and weights.
-        """
-        return _quad_tensors(self.n_quad, dtype, device)
 
     def _align_sample_data(
         self, sample_data: SampleData
@@ -91,14 +62,11 @@ class HazardMixin:
                 covariates, individual parameters and conditioning times.
         """
         dtype, device = dtype_device(self.params)
-        x = sample_data.x.to(dtype=dtype, device=device)
-        indiv_params = sample_data.indiv_params.to(dtype=dtype, device=device)
-        t_cond = (
-            None
-            if sample_data.t_cond is None
-            else sample_data.t_cond.to(dtype=dtype, device=device)
+        x, indiv_params, t_cond = (
+            None if tensor is None else tensor.to(dtype=dtype, device=device)
+            for tensor in (sample_data.x, sample_data.indiv_params, sample_data.t_cond)
         )
-        return x, indiv_params, t_cond
+        return x, indiv_params, t_cond  # type: ignore
 
     def _log_hazard(
         self,
@@ -160,7 +128,7 @@ class HazardMixin:
         t1 = torch.max(t0, t1)
 
         # Transform to quadrature interval
-        nodes, weights = self._quad_nodes_weights(t1.dtype, t1.device)
+        nodes, weights = _quad_tensors(self.n_quad, t1.dtype, t1.device)
         half = 0.5 * (t1 - t0)
         quad = (0.5 * (t0 + t1).unsqueeze(-1) + half.unsqueeze(-1) * nodes).flatten(
             start_dim=-2
@@ -191,8 +159,8 @@ class HazardMixin:
             device=indiv_params.device,
         )
 
-        _nodes, weights = self._quad_nodes_weights(
-            indiv_params.dtype, indiv_params.device
+        _nodes, weights = _quad_tensors(
+            self.n_quad, indiv_params.dtype, indiv_params.device
         )
         for key, (idxs, t0, obs, half, quad) in data.quad_buckets.items():
             vals = self._log_hazard(
@@ -302,12 +270,7 @@ class HazardMixin:
             torch.Tensor: The computed pre transition times.
         """
         # Initialize for bisection search
-        t_left, t_right = (
-            t0.clone(),
-            torch.nextafter(
-                t1, torch.full((), float("inf"), dtype=t1.dtype, device=t1.device)
-            ),
-        )
+        t_left, t_right = t0.clone(), torch.nextafter(t1, t1.new_tensor(float("inf")))
 
         # Generate exponential random variables
         target = -torch.log(torch.rand_like(t_left))
@@ -372,13 +335,15 @@ class HazardMixin:
 
         # Find earliest transition (single host transfer instead of one per row)
         min_times, argmin_idxs = torch.min(t_candidates, dim=1)
-        bucket_keys = list(current_buckets.keys())
-        times = min_times.tolist()
-        argmins = argmin_idxs.tolist()
-
-        for i, (time, arg_idx) in enumerate(zip(times, argmins, strict=True)):
+        dest_states = [key[1] for key in current_buckets]
+        for trajectory, time, arg_idx in zip(
+            sample_data.trajectories,
+            min_times.tolist(),
+            argmin_idxs.tolist(),
+            strict=True,
+        ):
             if isfinite(time):
-                sample_data.trajectories[i].append((time, bucket_keys[int(arg_idx)][1]))
+                trajectory.append((time, dest_states[arg_idx]))
 
         return False
 
@@ -464,10 +429,16 @@ class HazardMixin:
                 break
             flat.t_cond = None
 
+        # Compare in the dtype of c with a single host transfer
+        last_times = torch.tensor(
+            [trajectory[-1][0] for trajectory in trajectories_flat],
+            dtype=c.dtype if c.is_floating_point() else torch.get_default_dtype(),
+        )
+        keep = (last_times <= c_flat.reshape(-1).cpu()).tolist()
         simulated = [
-            trajectory if trajectory[-1][0] <= c_flat[i] else trajectory[:-1]
-            for i, trajectory in enumerate(trajectories_flat)
+            trajectory if kept else trajectory[:-1]
+            for trajectory, kept in zip(trajectories_flat, keep, strict=True)
         ]
-        if n_chains == 1:
+        if not leading:
             return simulated
         return [simulated[k * n : (k + 1) * n] for k in range(n_chains)]

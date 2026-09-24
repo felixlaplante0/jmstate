@@ -119,6 +119,10 @@ def test_chains():
     assert len(out) == 2
     assert len(out[0]) == 1
 
+    single = SampleData(data.x, data.trajectories, torch.ones(1, 1, 3), data.c)
+    out = model.sample_trajectories(single, torch.tensor([[2.0]]), max_length=1)
+    assert isinstance(out[0][0], list)
+
 
 @pytest.mark.skipif(not HAS_XPU, reason="no XPU device")
 def test_xpu():
