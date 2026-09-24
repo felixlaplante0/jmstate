@@ -8,12 +8,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import torch
-from efficient_kan import KANLinear
 from sksurv.metrics import brier_score, concordance_index_ipcw, cumulative_dynamic_auc
 from sksurv.util import Surv
-from torch import nn
 
-from jmstate.functions.base_hazards import Neural
 from jmstate.utils import plot_mcmc_diagnostics, plot_params_history
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -55,71 +52,14 @@ def resolve_device(preferred: torch.device | str | None = None) -> torch.device:
     if hasattr(torch, "xpu") and torch.xpu.is_available():  # type: ignore[attr-defined]
         return torch.device("xpu")
     try:
-        import torch_xla.core.xla_model as xm  # type: ignore[import-not-found]
+        import torch_xla.core.xla_model as xm  # type: ignore[import-not-found]  # noqa: PLC0415
 
         return xm.xla_device()
     except (ImportError, RuntimeError, OSError):
         pass
-    backends = getattr(torch, "backends", None)
-    mps = getattr(backends, "mps", None)
-    if mps is not None and mps.is_available():
+    if torch.backends.mps.is_available():
         return torch.device("mps")
     return torch.device("cpu")
-
-
-class SplineBaseline(nn.Module):
-    """Evaluate an unpenalized quadratic B-spline log-hazard basis.
-
-    The basis uses an ``efficient-kan`` quadratic spline with 10 grid points and
-    no penalty. The linear base weight is frozen at zero so only the spline
-    contributes to the log-hazard.
-    """
-
-    def __init__(self, max_time: float):
-        """Initialize the spline basis on ``[0, max_time]``.
-
-        Args:
-            max_time (float): Upper endpoint of the baseline-hazard interval.
-        """
-        super().__init__()
-        self.layer = KANLinear(
-            1,
-            1,
-            grid_size=10,
-            spline_order=2,
-            scale_noise=0.01,
-            scale_base=1.0,
-            scale_spline=1.0,
-            enable_standalone_scale_spline=False,
-            base_activation=nn.Identity,
-            grid_range=(0.0, max_time + max(1e-4, max_time * 1e-5)),
-        )
-        with torch.no_grad():
-            self.layer.base_weight.zero_()
-        self.layer.base_weight.requires_grad_(False)
-
-    def forward(self, time: torch.Tensor) -> torch.Tensor:
-        """Evaluate the log-hazard at ``time``.
-
-        Args:
-            time (torch.Tensor): Evaluation times of any shape.
-
-        Returns:
-            torch.Tensor: Log-hazard values with the same shape as ``time``.
-        """
-        return self.layer(time.reshape(-1, 1)).reshape(time.shape)
-
-
-def spline_hazard(max_time: float) -> Neural:
-    """Build a spline-only neural base hazard.
-
-    Args:
-        max_time (float): Upper endpoint of the baseline-hazard interval.
-
-    Returns:
-        Neural: Neural base hazard with a sojourn clock.
-    """
-    return Neural(SplineBaseline(max_time), clock_type="sojourn")
 
 
 def write_prediction_grid(
@@ -136,14 +76,14 @@ def write_prediction_grid(
     """
     landmarks = np.asarray(landmarks, dtype=float)
     horizons = np.asarray(horizons, dtype=float)
-    frame = pd.DataFrame(
+    repeats = horizons.shape[1]
+    pd.DataFrame(
         {
-            "landmark_index": np.repeat(np.arange(landmarks.size), horizons.shape[1]),
-            "landmark": np.repeat(landmarks, horizons.shape[1]),
+            "landmark_index": np.repeat(np.arange(landmarks.size), repeats),
+            "landmark": np.repeat(landmarks, repeats),
             "horizon": horizons.ravel(),
         }
-    )
-    frame.to_csv(output_path, index=False)
+    ).to_csv(output_path, index=False)
 
 
 def plot_metric_grid(
@@ -195,11 +135,7 @@ def plot_metric_grid(
                         linestyle=model_styles[model_name],
                     )
                     axis.fill_between(
-                        x,
-                        y - spread,
-                        y + spread,
-                        alpha=0.12,
-                        color=color,
+                        x, y - spread, y + spread, alpha=0.12, color=color
                     )
                 axis.set_ylabel(label)
                 axis.grid(alpha=0.25)
@@ -261,10 +197,8 @@ def prediction_grid(
     censoring = np.asarray(censoring_times, dtype=float)
     landmarks = np.quantile(censoring, landmark_quantiles)
     fractions = np.asarray(horizon_fractions, dtype=float)
-    horizons = landmarks[:, None] + fractions[None, :] * (
-        censoring.max() - landmarks[:, None]
-    )
-    return landmarks, horizons
+    remaining = censoring.max() - landmarks[:, None]
+    return landmarks, landmarks[:, None] + fractions * remaining
 
 
 def score_survival_predictions(
@@ -308,6 +242,7 @@ def score_survival_predictions(
     for index, horizon in enumerate(horizons):
         estimate = np.clip(survival[:, index], 0.0, 1.0)
         risk = 1.0 - estimate
+        times = np.asarray([horizon])
         record: dict[str, Any] = {
             "horizon": float(horizon),
             "n_train": int(train_times.size),
@@ -319,18 +254,12 @@ def score_survival_predictions(
             "brier_ipcw": np.nan,
         }
         try:
-            auc, _ = cumulative_dynamic_auc(
-                train_y, test_y, risk[:, None], np.asarray([horizon])
-            )
+            auc = cumulative_dynamic_auc(train_y, test_y, risk[:, None], times)[0]
             record["auc_ipcw"] = float(auc[0])
-            record["c_index_ipcw"] = float(
-                concordance_index_ipcw(train_y, test_y, risk, tau=horizon)[0]
-            )
-            record["brier_ipcw"] = float(
-                brier_score(train_y, test_y, estimate[:, None], np.asarray([horizon]))[
-                    1
-                ][0]
-            )
+            c_index = concordance_index_ipcw(train_y, test_y, risk, tau=horizon)[0]
+            record["c_index_ipcw"] = float(c_index)
+            brier = brier_score(train_y, test_y, estimate[:, None], times)[1]
+            record["brier_ipcw"] = float(brier[0])
         except ValueError:
             pass
         records.append(record)
@@ -380,10 +309,9 @@ def transition_survival_data(
             ``(eligible, times, events, initial_states)``.
     """
     censoring = np.asarray(censoring_times, dtype=float)
-    eligible = np.zeros(len(trajectories), dtype=bool)
-    times = np.zeros(len(trajectories), dtype=float)
-    events = np.zeros(len(trajectories), dtype=bool)
-    initial_states = np.zeros(len(trajectories), dtype=int)
+    n = len(trajectories)
+    eligible, events = np.zeros(n, dtype=bool), np.zeros(n, dtype=bool)
+    times, initial_states = np.zeros(n, dtype=float), np.zeros(n, dtype=int)
     for index, trajectory in enumerate(trajectories):
         initial_states[index] = state_at(trajectory, landmark)
         eligible[index] = (

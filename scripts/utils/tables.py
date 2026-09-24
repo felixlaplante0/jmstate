@@ -71,13 +71,7 @@ def convergence_table(
         out=np.full(successes.shape, np.nan),
         where=totals > 0,
     )
-    coverage_mcse = np.full(coverage.shape, np.nan)
-    covered_totals = totals > 0
-    coverage_mcse[covered_totals] = np.sqrt(
-        coverage[covered_totals]
-        * (1.0 - coverage[covered_totals])
-        / totals[covered_totals]
-    )
+    coverage_mcse = np.sqrt(coverage * (1.0 - coverage) / np.maximum(totals, 1))
 
     names = [
         f"{name}[{j}]"
@@ -115,15 +109,11 @@ def selection_table(
     names = list(names)
     # Failed fits are stored as NaN/None; coerce to NaN so they are skipped by
     # idxmin instead of raising.
-    aic = pd.DataFrame({name: [r["aic"] for r in results[name]] for name in names})
-    bic = pd.DataFrame({name: [r["bic"] for r in results[name]] for name in names})
-    aic = aic.apply(pd.to_numeric, errors="coerce")
-    bic = bic.apply(pd.to_numeric, errors="coerce")
-    fit_times = pd.DataFrame(
-        {name: [r["fit_time"] for r in results[name]] for name in names}
-    )
-    summary_times = pd.DataFrame(
-        {name: [r["summary_time"] for r in results[name]] for name in names}
+    aic, bic, fit_times, summary_times = (
+        pd.DataFrame({name: [r[key] for r in results[name]] for name in names}).apply(
+            pd.to_numeric, errors="coerce"
+        )
+        for key in ("aic", "bic", "fit_time", "summary_time")
     )
 
     def _wins(frame: pd.DataFrame) -> pd.Series:
@@ -158,11 +148,9 @@ def aggregate_metrics(
         pd.DataFrame: Aggregated frame with ``mean_*``, ``sd_*``, and
             ``n_valid_*`` columns.
     """
-    frame = pd.DataFrame(records)
-    metric_columns = ["auc_ipcw", "c_index_ipcw", "brier_ipcw"]
-    grouped = frame.groupby(list(group_columns), dropna=False)
+    grouped = pd.DataFrame(records).groupby(list(group_columns), dropna=False)
     result = grouped.size().rename("n_records").to_frame()
-    for metric in metric_columns:
+    for metric in ("auc_ipcw", "c_index_ipcw", "brier_ipcw"):
         result[f"mean_{metric}"] = grouped[metric].mean()
         result[f"sd_{metric}"] = grouped[metric].std()
         result[f"n_valid_{metric}"] = grouped[metric].count()

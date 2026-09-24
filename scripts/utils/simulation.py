@@ -43,6 +43,7 @@ N_REPS = 100
 N_TIMES = 20
 SEED = 42
 COVERAGE_LEVEL = 0.95
+KEYS = ((1, 1), (1, 2))
 
 
 def pk_fn(t: torch.Tensor, indiv_params: torch.Tensor) -> torch.Tensor:
@@ -78,7 +79,9 @@ def pk_integral_fn(t: torch.Tensor, indiv_params: torch.Tensor) -> torch.Tensor:
 
 
 def indiv_params_fn(
-    fixed: torch.Tensor, x: torch.Tensor, b: torch.Tensor
+    fixed: torch.Tensor,
+    x: torch.Tensor,  # noqa: ARG001
+    b: torch.Tensor,
 ) -> torch.Tensor:
     """Map fixed effects and random effects to individual parameters.
 
@@ -156,8 +159,7 @@ def correct_design() -> ModelDesign:
     Returns:
         ModelDesign: Design whose link functions integrate the exposure.
     """
-    surv_fns = {(1, 1): pk_integral_fn, (1, 2): pk_integral_fn}
-    return ModelDesign(indiv_params_fn, pk_fn, surv_fns)
+    return ModelDesign(indiv_params_fn, pk_fn, dict.fromkeys(KEYS, pk_integral_fn))
 
 
 def misspecified_design() -> ModelDesign:
@@ -166,8 +168,31 @@ def misspecified_design() -> ModelDesign:
     Returns:
         ModelDesign: Design linking on the concentration instead of its integral.
     """
-    surv_fns = {(1, 1): pk_integral_fn, (1, 2): pk_integral_fn}
-    return ModelDesign(indiv_params_fn, pk_fn, dict.fromkeys(surv_fns, pk_fn))
+    return ModelDesign(indiv_params_fn, pk_fn, dict.fromkeys(KEYS, pk_fn))
+
+
+def _init_params(
+    link_coefs: dict[tuple[int, int], torch.Tensor] | None = None, n_x: int = 1
+) -> ModelParameters:
+    """Build initial parameters for the candidate models.
+
+    Args:
+        link_coefs (dict[tuple[int, int], torch.Tensor] | None, optional): Link
+            coefficients per transition. Defaults to None (independent zeros).
+        n_x (int, optional): Number of covariate coefficients per transition.
+            Defaults to 1.
+
+    Returns:
+        ModelParameters: Initial parameters.
+    """
+    return ModelParameters(
+        torch.ones(3),
+        PrecisionParameters.from_covariance(torch.eye(3), "diag"),
+        PrecisionParameters.from_covariance(torch.eye(1), "spherical"),
+        {key: Exponential(1.0) for key in KEYS},
+        link_coefs or {key: torch.zeros(1) for key in KEYS},
+        {key: torch.zeros(n_x) for key in KEYS},
+    )
 
 
 def init_params_correct() -> ModelParameters:
@@ -176,14 +201,7 @@ def init_params_correct() -> ModelParameters:
     Returns:
         ModelParameters: Initial parameters with the true structure.
     """
-    return ModelParameters(
-        torch.ones(3),
-        PrecisionParameters.from_covariance(torch.eye(3), "diag"),
-        PrecisionParameters.from_covariance(torch.eye(1), "spherical"),
-        {(1, 1): Exponential(1.0), (1, 2): Exponential(1.0)},
-        {key: torch.zeros(1) for key in ((1, 1), (1, 2))},
-        {key: torch.zeros(1) for key in ((1, 1), (1, 2))},
-    )
+    return _init_params()
 
 
 def init_params_less() -> ModelParameters:
@@ -192,15 +210,7 @@ def init_params_less() -> ModelParameters:
     Returns:
         ModelParameters: Initial parameters with too few link parameters.
     """
-    shared_coef = torch.nn.Parameter(torch.zeros(1))
-    return ModelParameters(
-        torch.ones(3),
-        PrecisionParameters.from_covariance(torch.eye(3), "diag"),
-        PrecisionParameters.from_covariance(torch.eye(1), "spherical"),
-        {(1, 1): Exponential(1.0), (1, 2): Exponential(1.0)},
-        {(1, 1): shared_coef, (1, 2): shared_coef},
-        {key: torch.zeros(1) for key in ((1, 1), (1, 2))},
-    )
+    return _init_params(dict.fromkeys(KEYS, torch.nn.Parameter(torch.zeros(1))))
 
 
 def init_params_more() -> ModelParameters:
@@ -209,14 +219,7 @@ def init_params_more() -> ModelParameters:
     Returns:
         ModelParameters: Initial parameters with too many coefficients.
     """
-    return ModelParameters(
-        torch.ones(3),
-        PrecisionParameters.from_covariance(torch.eye(3), "diag"),
-        PrecisionParameters.from_covariance(torch.eye(1), "spherical"),
-        {(1, 1): Exponential(1.0), (1, 2): Exponential(1.0)},
-        {key: torch.zeros(1) for key in ((1, 1), (1, 2))},
-        {key: torch.zeros(4) for key in ((1, 1), (1, 2))},
-    )
+    return _init_params(n_x=4)
 
 
 TRUE_PARAMETERS = true_parameters()
@@ -279,18 +282,11 @@ def get_vector_and_scores(
             fit_time,
             summary_time,
         )
-    except Exception as exc:  # noqa: BLE001 - one bad fit must not kill the study
+    except Exception as exc:  # one bad fit must not kill the study
         warn(f"Fit failed and is recorded as NaN: {exc!r}", stacklevel=2)
-        dim = parameters_to_vector(parameters.parameters()).numel()
-        nan_vector = torch.full((dim,), float("nan"))
-        return (
-            nan_vector,
-            nan_vector.clone(),
-            float("nan"),
-            None,
-            float("nan"),
-            float("nan"),
-        )
+        nan_vector = torch.full((parameters.numel(),), float("nan"))
+        nan = float("nan")
+        return nan_vector, nan_vector.clone(), nan, None, nan, nan
 
 
 def run_replications(
