@@ -16,6 +16,22 @@ from torch import nn
 from ..types._defs import LOG_CLAMP, LOG_TWO_PI, LogBaseHazardFn
 
 
+def _register(module: nn.Module, frozen: bool, **tensors: torch.Tensor) -> None:
+    """Registers tensors as buffers if frozen, else as parameters, in order.
+
+    Args:
+        module (nn.Module): The module owning the tensors.
+        frozen (bool): Whether to freeze the tensors.
+        **tensors (torch.Tensor): The tensors to register, by name.
+    """
+    for name, tensor in tensors.items():
+        if frozen:
+            module.register_buffer(name, tensor)
+        else:
+            setattr(module, name, nn.Parameter(tensor))
+    module.frozen = frozen
+
+
 class Neural(LogBaseHazardFn):
     r"""Implements a neural-network log base hazard.
 
@@ -37,13 +53,27 @@ class Neural(LogBaseHazardFn):
         prefer_skip_nested_validation=True,
     )
     def __init__(self, nn: nn.Module, *, clock_type: str = "sojourn"):
-        """Initialize the neural log base hazard."""
+        """Initializes the neural log base hazard.
+
+        Args:
+            nn (nn.Module): Network mapping scalar times to scalar log hazards.
+            clock_type (str, optional): The type of clock to use. Defaults to
+                "sojourn".
+        """
         super().__init__()  # type: ignore
         self.nn = nn
         self.clock_type = clock_type
 
     def forward(self, t0: torch.Tensor, t1: torch.Tensor) -> torch.Tensor:
-        """Evaluate the log base hazard at ``t1`` relative to ``t0``."""
+        """Calls the neural log base hazard.
+
+        Args:
+            t0 (torch.Tensor): Previous transition times, shape `(n, 1)`.
+            t1 (torch.Tensor): Future evaluation times, shape `(n, m)`.
+
+        Returns:
+            torch.Tensor: The computed base hazard in log scale, shaped as `t1`.
+        """
         t = t1 - t0 if self.clock_type == "sojourn" else t1
         first = next(self.nn.parameters(), None)
         if first is not None:
@@ -68,7 +98,7 @@ class Exponential(LogBaseHazardFn):
 
     The output is the log base hazard evaluated at each `t1` relative to `t0`.
 
-    Optimization of the parameters can be disabled by checking the `forzen` flag.
+    Optimization of the parameters can be disabled by checking the `frozen` flag.
 
     Attributes:
         log_lmda (nn.Parameter | torch.Tensor): The log rate factor.
@@ -94,12 +124,7 @@ class Exponential(LogBaseHazardFn):
         """
         super().__init__()  # type: ignore
 
-        log_lmda_tensor = torch.log(torch.tensor(lmda))
-        if frozen:
-            self.register_buffer("log_lmda", log_lmda_tensor)
-        else:
-            self.log_lmda = nn.Parameter(log_lmda_tensor)
-        self.frozen = frozen
+        _register(self, frozen, log_lmda=torch.log(torch.tensor(lmda)))
 
     def forward(
         self,
@@ -147,7 +172,7 @@ class Weibull(LogBaseHazardFn):
     If `clock_type` is set to `sojourn`, given `t0` and `t1`, the transformation will be
     computed at `t1 - t0` (sojourn time), and simply `t1` if set to `absolute`.
 
-    Optimization of the parameters can be disabled by checking the `forzen` flag.
+    Optimization of the parameters can be disabled by checking the `frozen` flag.
 
     Attributes:
         log_lmda (nn.Parameter | torch.Tensor): The log of the scale parameter.
@@ -189,16 +214,13 @@ class Weibull(LogBaseHazardFn):
         """
         super().__init__()  # type: ignore
 
-        log_lmda_tensor = torch.log(torch.tensor(lmda))
-        log_k_tensor = torch.log(torch.tensor(k))
-        if frozen:
-            self.register_buffer("log_lmda", log_lmda_tensor)
-            self.register_buffer("log_k", log_k_tensor)
-        else:
-            self.log_lmda = nn.Parameter(log_lmda_tensor)
-            self.log_k = nn.Parameter(log_k_tensor)
+        _register(
+            self,
+            frozen,
+            log_lmda=torch.log(torch.tensor(lmda)),
+            log_k=torch.log(torch.tensor(k)),
+        )
         self.clock_type = clock_type
-        self.frozen = frozen
 
     def forward(self, t0: torch.Tensor, t1: torch.Tensor) -> torch.Tensor:
         """Calls the Weibull base hazard.
@@ -252,7 +274,7 @@ class Gompertz(LogBaseHazardFn):
     computed at `t1 - t0` (sojourn time), and simply `t1` if `clock_type` is set to
     `absolute`.
 
-    Optimization of the parameters can be disabled by checking the `forzen` flag.
+    Optimization of the parameters can be disabled by checking the `frozen` flag.
 
     Attributes:
         log_a (nn.Parameter | torch.Tensor): The baseline hazard parameter.
@@ -294,16 +316,8 @@ class Gompertz(LogBaseHazardFn):
         """
         super().__init__()  # type: ignore
 
-        log_a_tensor = torch.log(torch.tensor(a))
-        b_tensor = torch.tensor(b)
-        if frozen:
-            self.register_buffer("log_a", log_a_tensor)
-            self.register_buffer("b", b_tensor)
-        else:
-            self.log_a = nn.Parameter(log_a_tensor)
-            self.b = nn.Parameter(b_tensor)
+        _register(self, frozen, log_a=torch.log(torch.tensor(a)), b=torch.tensor(b))
         self.clock_type = clock_type
-        self.frozen = frozen
 
     def forward(self, t0: torch.Tensor, t1: torch.Tensor) -> torch.Tensor:
         """Calls the Gompertz base hazard.
@@ -355,7 +369,7 @@ class LogNormal(LogBaseHazardFn):
     computed at `t1 - t0` (sojourn time), and simply `t1` if `clock_type` is set to
     `absolute`.
 
-    Optimization of the parameters can be disabled by checking the `forzen` flag.
+    Optimization of the parameters can be disabled by checking the `frozen` flag.
 
     Attributes:
         mu (nn.Parameter | torch.Tensor): The log time mean.
@@ -397,16 +411,13 @@ class LogNormal(LogBaseHazardFn):
         """
         super().__init__()  # type: ignore
 
-        mu_tensor = torch.tensor(mu)
-        log_scale_tensor = torch.log(torch.tensor(scale))
-        if frozen:
-            self.register_buffer("mu", mu_tensor)
-            self.register_buffer("log_scale", log_scale_tensor)
-        else:
-            self.mu = nn.Parameter(mu_tensor)
-            self.log_scale = nn.Parameter(log_scale_tensor)
+        _register(
+            self,
+            frozen,
+            mu=torch.tensor(mu),
+            log_scale=torch.log(torch.tensor(scale)),
+        )
         self.clock_type = clock_type
-        self.frozen = frozen
 
     def forward(self, t0: torch.Tensor, t1: torch.Tensor) -> torch.Tensor:
         """Calls the log normal base hazard.

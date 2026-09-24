@@ -23,20 +23,8 @@ from ._predict import PredictMixin
 from ._sampler import MetropolisWithinGibbsSampler
 
 # Constants
-SIGNIFICANCE_LEVELS: Final[tuple[float, ...]] = (
-    0.001,
-    0.01,
-    0.05,
-    0.1,
-    float("inf"),
-)
-SIGNIFICANCE_CODES: Final[tuple[str, ...]] = (
-    "[red3]***[/]",
-    "[orange3]**[/]",
-    "[yellow3]*[/]",
-    ".",
-    "",
-)
+SIGNIFICANCE_LEVELS: Final = (0.001, 0.01, 0.05, 0.1, float("inf"))
+SIGNIFICANCE_CODES: Final = ("[red3]***[/]", "[orange3]**[/]", "[yellow3]*[/]", ".", "")
 
 
 class MultiStateJointModel(BaseEstimator, FitMixin, PredictMixin):
@@ -269,15 +257,14 @@ class MultiStateJointModel(BaseEstimator, FitMixin, PredictMixin):
         Returns:
             Self: The moved and cast model.
         """
-        requested = kwargs.get("dtype")
-        if requested is None:
-            for arg in args:
-                if isinstance(arg, torch.dtype):
-                    requested = arg
-                    break
-                if isinstance(arg, torch.Tensor):
-                    requested = arg.dtype
-                    break
+        requested = kwargs.get("dtype") or next(
+            (
+                arg if isinstance(arg, torch.dtype) else arg.dtype
+                for arg in args
+                if isinstance(arg, torch.dtype | torch.Tensor)
+            ),
+            None,
+        )
         if requested is not None:
             model_dtype(requested)
         return super().to(*args, **kwargs)
@@ -348,46 +335,22 @@ class MultiStateJointModel(BaseEstimator, FitMixin, PredictMixin):
                 "compute_summary() first."
             )
 
-        if not torch.isfinite(self.fim_).all():
-            warn(
-                "The Fisher information matrix contains non-finite values; "
-                "standard errors are unavailable.",
-                stacklevel=2,
-            )
-            return torch.full(
-                (self.fim_.size(0),),
-                torch.nan,
-                dtype=self.fim_.dtype,
-                device=self.fim_.device,
-            )
-
-        if torch.linalg.matrix_rank(self.fim_) < self.fim_.size(0):
-            warn(
-                "The Fisher information matrix is singular; standard errors are "
-                "unavailable.",
-                stacklevel=2,
-            )
-            return torch.full(
-                (self.fim_.size(0),),
-                torch.nan,
-                dtype=self.fim_.dtype,
-                device=self.fim_.device,
-            )
-
-        try:
-            return self.fim_.inverse().diag().sqrt()
-        except RuntimeError:
-            warn(
-                "The Fisher information matrix could not be inverted; standard "
-                "errors are unavailable.",
-                stacklevel=2,
-            )
-            return torch.full(
-                (self.fim_.size(0),),
-                torch.nan,
-                dtype=self.fim_.dtype,
-                device=self.fim_.device,
-            )
+        fim = self.fim_
+        if not torch.isfinite(fim).all():
+            problem = "contains non-finite values"
+        elif torch.linalg.matrix_rank(fim) < fim.size(0):
+            problem = "is singular"
+        else:
+            try:
+                return fim.inverse().diag().sqrt()
+            except RuntimeError:
+                problem = "could not be inverted"
+        warn(
+            f"The Fisher information matrix {problem}; standard errors are "
+            "unavailable.",
+            stacklevel=2,
+        )
+        return torch.full_like(fim[0], torch.nan)
 
     def conf_int(self, level: float = 0.95) -> tuple[torch.Tensor, torch.Tensor]:
         r"""Computes Wald confidence intervals for the model parameters.
@@ -425,53 +388,38 @@ class MultiStateJointModel(BaseEstimator, FitMixin, PredictMixin):
         Raises:
             ValueError: If the model has not been fitted.
         """
-        vector = parameters_to_vector(self.params.parameters())
+        vector = parameters_to_vector(self.params.parameters()).detach()
         stderr = self.stderr
         zvalues = torch.abs(vector / stderr)
         pvalues = 2 * torch.special.ndtr(-zvalues)
-
         # Batch host transfer: avoids one sync per parameter on device tensors
-        values = vector.detach().float().cpu().tolist()
-        errors = stderr.detach().float().cpu().tolist()
-        zscores = zvalues.detach().float().cpu().tolist()
-        pscores = pvalues.detach().float().cpu().tolist()
+        rows = torch.stack([vector, stderr, zvalues, pvalues]).float().cpu().T.tolist()
+        names = [
+            f"{name}[{j}]"
+            for name, val in self.params.named_parameters()
+            for j in range(val.numel())
+        ]
 
         table = Table()
         table.add_column("Parameter name", justify="left")
-        table.add_column("Value", justify="center")
-        table.add_column("Standard Error", justify="center")
-        table.add_column("z-value", justify="center")
-        table.add_column("p-value", justify="center")
+        for column in ("Value", "Standard Error", "z-value", "p-value"):
+            table.add_column(column, justify="center")
         table.add_column("Significance level", justify="center")
-
-        i = 0
-        for name, val in self.params.named_parameters():
-            for j in range(val.numel()):
-                code = (
-                    SIGNIFICANCE_CODES[bisect_left(SIGNIFICANCE_LEVELS, pscores[i])]
-                    if isfinite(pscores[i])
-                    else ""
-                )
-
-                table.add_row(
-                    f"{name}[{j}]",
-                    f"{values[i]:.3f}",
-                    f"{errors[i]:.3f}",
-                    f"{zscores[i]:.3f}",
-                    f"{pscores[i]:.3f}",
-                    code,
-                )
-                i += 1
+        for name, row in zip(names, rows, strict=True):
+            pvalue = row[-1]
+            code = (
+                SIGNIFICANCE_CODES[bisect_left(SIGNIFICANCE_LEVELS, pvalue)]
+                if isfinite(pvalue)
+                else ""
+            )
+            table.add_row(name, *(f"{v:.3f}" for v in row), code)
 
         bic = "unavailable" if self.bic_ is None else f"{self.bic_:.3f}"
         criteria = Text(
             f"Log-likelihood: {self.loglik_:.3f}\nAIC: {self.aic_:.3f}\nBIC: {bic}",
             style="bold cyan",
         )
-
         content = Group(table, Rule(style="dim"), criteria, Rule(style="dim"))
-        panel = Panel(
-            content, title="Model Summary", border_style="green", expand=False
+        Console().print(
+            Panel(content, title="Model Summary", border_style="green", expand=False)
         )
-
-        Console().print(panel)

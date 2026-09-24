@@ -1,13 +1,14 @@
 from collections.abc import Iterator
 from math import ceil
 from numbers import Integral
-from typing import Any, cast
+from typing import cast
 
 import torch
 from sklearn.utils._param_validation import Interval, validate_params  # type: ignore
 from sklearn.utils.validation import (  # type: ignore
     check_consistent_length,  # type: ignore
 )
+from torch.distributions import MultivariateNormal
 from torch.nn.utils import parameters_to_vector, vector_to_parameters
 from tqdm import trange
 
@@ -36,10 +37,6 @@ class PredictMixin(HazardMixin, MCMCMixin):
     verbose: bool | int
     fim_: torch.Tensor | None
 
-    def __init__(self, *args: Any, **kwargs: Any):
-        """Initialize the prediction mixin."""
-        super().__init__(*args, **kwargs)
-
     def _sample_params(self, sample_size: int) -> torch.Tensor:
         """Sample model parameters based on asymptotic behavior of the MLE.
 
@@ -54,19 +51,14 @@ class PredictMixin(HazardMixin, MCMCMixin):
             torch.Tensor: A tensor of sampled model parameters as vectors.
         """
         loc = parameters_to_vector(self.params.parameters()).detach()
+        fim = cast(torch.Tensor, self.fim_)
         try:
-            dist = torch.distributions.MultivariateNormal(
-                loc=loc, precision_matrix=cast(torch.Tensor, self.fim_)
-            )
+            dist = MultivariateNormal(loc, precision_matrix=fim)
         except ValueError:
             # Fisher information may be singular; add a small relative jitter
-            fim = cast(torch.Tensor, self.fim_)
             jitter = 1e-6 * fim.diagonal().mean().clamp(min=1e-6)
-            dist = torch.distributions.MultivariateNormal(
-                loc=loc,
-                precision_matrix=fim
-                + jitter * torch.eye(fim.size(0), dtype=fim.dtype, device=fim.device),
-            )
+            eye = torch.eye(fim.size(0), dtype=fim.dtype, device=fim.device)
+            dist = MultivariateNormal(loc, precision_matrix=fim + jitter * eye)
         return dist.sample((sample_size,))
 
     def _posterior_draws(
@@ -98,28 +90,23 @@ class PredictMixin(HazardMixin, MCMCMixin):
         """
         n_iter = ceil(n_samples / self.n_chains)
 
-        init_params = None
-        sampled_params = None
+        init_params = sampled_params = None
         if double_monte_carlo:
             if self.fim_ is None:
                 raise ValueError(
                     "Double Monte Carlo requires summary statistics. "
                     "Call compute_summary() first."
                 )
-            init_params = (
-                parameters_to_vector(self.params.parameters()).detach().clone()
-            )
+            init_params = parameters_to_vector(self.params.parameters()).detach()
             sampled_params = self._sample_params(n_iter)
 
-        sampler = self._init_sampler(data)
         if not double_monte_carlo:
-            sampler.run(self.n_warmup)
+            sampler = self._init_sampler(data).run(self.n_warmup)
 
         try:
-            for i in trange(n_iter, desc=desc, disable=not bool(self.verbose)):
+            for i in trange(n_iter, desc=desc, disable=not self.verbose):
                 if double_monte_carlo:
-                    parameters = self.params.parameters()
-                    vector_to_parameters(sampled_params[i], parameters)  # type: ignore
+                    vector_to_parameters(sampled_params[i], self.params.parameters())
                     sampler = self._init_sampler(data).run(self.n_warmup)
 
                 yield self.design.indiv_params_fn(
@@ -130,8 +117,7 @@ class PredictMixin(HazardMixin, MCMCMixin):
                     sampler.run(self.n_subsample)
         finally:
             if init_params is not None:
-                parameters = self.params.parameters()
-                vector_to_parameters(init_params, parameters)  # type: ignore
+                vector_to_parameters(init_params, self.params.parameters())
 
     @torch.no_grad()  # type: ignore
     @validate_params(
@@ -188,18 +174,14 @@ class PredictMixin(HazardMixin, MCMCMixin):
         data = prepare_model_data(data, self)
         u = u.to(dtype=data.t.dtype, device=data.t.device)
 
-        y_pred: list[torch.Tensor] = []
         draws = self._posterior_draws(
             data,
             n_samples=n_samples,
             double_monte_carlo=double_monte_carlo,
             desc="Predicting longitudinal values",
         )
-        for indiv_params in draws:
-            y = self.design.regression_fn(u, indiv_params)
-            y_pred.extend(y[j] for j in range(y.size(0)))
-
-        return torch.stack(y_pred[:n_samples])
+        y_pred = [self.design.regression_fn(u, indiv_params) for indiv_params in draws]
+        return torch.cat(y_pred)[:n_samples]
 
     @torch.no_grad()  # type: ignore
     @validate_params(
@@ -271,21 +253,19 @@ class PredictMixin(HazardMixin, MCMCMixin):
         data = prepare_model_data(data, self)
         u = u.to(dtype=data.t.dtype, device=data.t.device)
 
-        surv_logps_pred: list[torch.Tensor] = []
         draws = self._posterior_draws(
             data,
             n_samples=n_samples,
             double_monte_carlo=double_monte_carlo,
             desc="Predicting survival log probabilities",
         )
-        for indiv_params in draws:
-            sample_data = SampleDataUnchecked(
-                data.x, data.trajectories, indiv_params, data.c
+        surv_logps_pred = [
+            self.compute_surv_logps(
+                SampleDataUnchecked(data.x, data.trajectories, indiv_params, data.c), u
             )
-            surv_logps = self.compute_surv_logps(sample_data, u)
-            surv_logps_pred.extend(surv_logps[j] for j in range(surv_logps.size(0)))
-
-        return torch.stack(surv_logps_pred[:n_samples])
+            for indiv_params in draws
+        ]
+        return torch.cat(surv_logps_pred)[:n_samples]
 
     @torch.no_grad()  # type: ignore
     @validate_params(

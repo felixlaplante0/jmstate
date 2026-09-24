@@ -131,36 +131,18 @@ class PrecisionParameters(BaseEstimator, nn.Module):
         self.dim = dim
         self.precision_type = precision_type
 
-    def _cholesky_log_eigvals(
-        self, flat: torch.Tensor | None = None
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Gets the Cholesky factor and the log eigvals of the precision matrix.
-
-        Args:
-            flat (torch.Tensor | None, optional): Flat tensor to use instead of
-                ``self.flat``. Defaults to None.
+    @property
+    def _prec_cholesky_log_eigvals(self) -> tuple[torch.Tensor, torch.Tensor]:
+        """Gets Cholesky factor of precision matrix and its log eigvals.
 
         Returns:
-            tuple[torch.Tensor, torch.Tensor]: Precision matrix and log eigvals.
+            tuple[torch.Tensor, torch.Tensor]: Cholesky factor and log eigvals.
         """
-        flat = self.flat if flat is None else flat
-        L = log_cholesky_from_flat(flat, self.dim, self.precision_type)
+        L = log_cholesky_from_flat(self.flat, self.dim, self.precision_type)
         log_eigvals = 2 * L.diag()
         L.diagonal().exp_()
 
         return L, log_eigvals
-
-    def _cholesky(self, flat: torch.Tensor | None = None) -> torch.Tensor:
-        """Gets the Cholesky factor of the precision matrix.
-
-        Args:
-            flat (torch.Tensor | None, optional): Flat tensor to use instead of
-                ``self.flat``. Defaults to None.
-
-        Returns:
-            torch.Tensor: The Cholesky factor.
-        """
-        return self._cholesky_log_eigvals(flat)[0]
 
     @property
     def precision(self) -> torch.Tensor:
@@ -169,7 +151,7 @@ class PrecisionParameters(BaseEstimator, nn.Module):
         Returns:
             torch.Tensor: The precision matrix.
         """
-        L = self._cholesky()
+        L = self._prec_cholesky_log_eigvals[0]
         return L @ L.T
 
     @property
@@ -179,16 +161,7 @@ class PrecisionParameters(BaseEstimator, nn.Module):
         Returns:
             torch.Tensor: The covariance matrix.
         """
-        return torch.cholesky_inverse(self._cholesky())
-
-    @property
-    def _prec_cholesky_log_eigvals(self) -> tuple[torch.Tensor, torch.Tensor]:
-        """Gets Cholesky factor of precision matrix and its log eigvals.
-
-        Returns:
-            tuple[torch.Tensor, torch.Tensor]: Precision matrix and log eigvals.
-        """
-        return self._cholesky_log_eigvals(self.flat)
+        return torch.cholesky_inverse(self._prec_cholesky_log_eigvals[0])
 
 
 class ModelParameters(BaseEstimator, nn.Module):

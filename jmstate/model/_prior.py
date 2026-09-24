@@ -1,5 +1,3 @@
-from typing import Any
-
 import torch
 
 from ..types._defs import LOG_TWO_PI
@@ -10,10 +8,6 @@ class PriorMixin:
     """Mixin class for prior model computations."""
 
     params: ModelParameters
-
-    def __init__(self, *args: Any, **kwargs: Any):
-        """Initializes the prior mixin."""
-        super().__init__(*args, **kwargs)
 
     def _prior_logliks(self, b: torch.Tensor) -> torch.Tensor:
         """Computes the prior log likelihoods.

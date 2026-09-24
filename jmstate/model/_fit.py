@@ -63,6 +63,8 @@ class FitMixin(PriorMixin, LongitudinalMixin, HazardMixin, MCMCMixin, nn.Module)
             max_iter (int): The maximum number of iterations for fitting.
             tol (float): The tolerance for the convergence.
             window_size (int): The window size for the convergence.
+            *args (Any): Positional arguments forwarded to the next mixin.
+            **kwargs (Any): Keyword arguments forwarded to the next mixin.
         """
         super().__init__(*args, **kwargs)
 
@@ -103,41 +105,16 @@ class FitMixin(PriorMixin, LongitudinalMixin, HazardMixin, MCMCMixin, nn.Module)
         Returns:
             bool: True if the optimizer has converged, False otherwise.
         """
-
-        def r2(Y: torch.Tensor) -> torch.Tensor:
-            n = Y.size(0)
-            i = torch.arange(n, dtype=Y.dtype, device=Y.device)
-            i_centered = i - (n - 1) / 2
-            y_centered = Y - Y.mean(dim=0)
-            num = (i_centered @ y_centered) ** 2
-            den = i_centered.pow(2).sum() * y_centered.pow(2).sum(dim=0)
-            return (num / den).nan_to_num()
-
-        if len(self.params_history_) < self.window_size:
+        n = self.window_size
+        if len(self.params_history_) < n:
             return False
 
         last = self.params_history_[-1]
-        Y = torch.stack(
-            [
-                h.to(dtype=last.dtype, device=last.device)
-                for h in self.params_history_[-self.window_size :]
-            ]
-        )
-        return r2(Y).mean().item() < self.tol
-
-    def _warn_not_converged(self, *, stacklevel: int) -> None:
-        """Emits a convergence warning for an exhausted optimization budget.
-
-        Args:
-            stacklevel (int): Warning stack level passed to `warn`.
-        """
-        warn(
-            "Model may not have converged in the specified number of iterations. "
-            "Try to increase `max_iter`, `tol`, or `window_size`. Also try "
-            "to increase `n_subsample` or `n_warmup` for better MCMC mixing.",
-            category=ConvergenceWarning,
-            stacklevel=stacklevel,
-        )
+        Y = torch.stack([h.to(last) for h in self.params_history_[-n:]])
+        i = torch.arange(n, dtype=Y.dtype, device=Y.device) - (n - 1) / 2
+        Y = Y - Y.mean(dim=0)
+        r2 = (i @ Y) ** 2 / (i.pow(2).sum() * Y.pow(2).sum(dim=0))
+        return r2.nan_to_num().mean().item() < self.tol
 
     @validate_params(
         {
@@ -178,34 +155,37 @@ class FitMixin(PriorMixin, LongitudinalMixin, HazardMixin, MCMCMixin, nn.Module)
         data = prepare_model_data(data, self)
 
         # Initialize MCMC
-        self.sampler = self._init_sampler(data).run(self.n_warmup)
+        sampler = self.sampler = self._init_sampler(data).run(self.n_warmup)
 
-        def closure():
+        def closure() -> float:
             self.optimizer.zero_grad()  # type: ignore
-            loss = -self.sampler.logpdfs_fn(self.sampler.b).mean()  # type: ignore
+            loss = -sampler.logpdfs_fn(sampler.b).mean()
             loss.backward()  # type: ignore
             return loss.item()
 
-        converged = False
         for _ in trange(
-            self.max_iter,
-            desc="Fitting joint model",
-            disable=not bool(self.verbose),
+            self.max_iter, desc="Fitting joint model", disable=not self.verbose
         ):
-            self.optimizer.step(closure)
+            self.optimizer.step(closure)  # type: ignore
             self.params_history_.append(
                 parameters_to_vector(self.params.parameters()).detach()
             )
 
             # Restore logpdfs and indiv_params, because parameters changed
-            self.sampler.reset().run(self.n_subsample)
+            sampler.reset().run(self.n_subsample)
 
             if self._is_converged():
-                converged = True
                 break
-
-        if self.max_iter > 0 and not converged:
-            self._warn_not_converged(stacklevel=3)
+        else:
+            if self.max_iter > 0:
+                warn(
+                    "Model may not have converged in the specified number of "
+                    "iterations. Try to increase `max_iter`, `tol`, or `window_size`. "
+                    "Also try to increase `n_subsample` or `n_warmup` for better MCMC "
+                    "mixing.",
+                    category=ConvergenceWarning,
+                    stacklevel=4,
+                )
 
         return self
 
@@ -255,45 +235,36 @@ class FitMixin(PriorMixin, LongitudinalMixin, HazardMixin, MCMCMixin, nn.Module)
             Self: The fitted model with summary statistics computed.
         """
         check_is_fitted(self, "sampler")
-
-        n, q = self.sampler.b.shape[1:]  # type: ignore
+        sampler: MetropolisWithinGibbsSampler = self.sampler  # type: ignore
+        n, q = sampler.b.shape[1:]
+        dtype, device = dtype_device(self.params)
+        disable = not self.verbose
 
         # Jac forward since output dimension > input dimension
         @jacfwd  # type: ignore
-        def _dict_jac_fn(
-            named_parameters_dict: dict[str, torch.Tensor],
-        ) -> torch.Tensor:
-            with _reparametrize_module(self, named_parameters_dict):
-                logpdfs = self.sampler.logpdfs_fn(self.sampler.b)  # type: ignore
-                return logpdfs.mean(dim=0)
-
-        def _jac_fn() -> torch.Tensor:
-            out = _dict_jac_fn(dict(self.named_parameters()))  # type: ignore
-            parts = [p.reshape(n, -1) for p in out.values()]  # type: ignore
-            return torch.cat(parts, dim=-1)
+        def _dict_jac_fn(params: dict[str, torch.Tensor]) -> torch.Tensor:
+            with _reparametrize_module(self, params):
+                return sampler.logpdfs_fn(sampler.b).mean(dim=0)
 
         # Initialize accumulators on the model device in kernel precision
-        dtype, device = dtype_device(self.params)
-        working = dtype
-        mjac = torch.zeros(n, self.params.numel(), dtype=working, device=device)
-        mb = torch.zeros(n, q, dtype=working, device=device)
-        mb2 = torch.zeros(n, q, q, dtype=working, device=device)
+        mjac = torch.zeros(n, self.params.numel(), dtype=dtype, device=device)
+        mb = torch.zeros(n, q, dtype=dtype, device=device)
+        mb2 = torch.zeros(n, q, q, dtype=dtype, device=device)
 
         n_iter = ceil(n_posterior_samples / self.n_chains)
         for _ in trange(
-            n_iter,
-            desc="Estimating FIM and Gaussian proposal",
-            disable=not bool(self.verbose),
+            n_iter, desc="Estimating FIM and Gaussian proposal", disable=disable
         ):
             # Mean jacobian across chains
-            mjac += _jac_fn().detach()  # type: ignore
+            jac = _dict_jac_fn(dict(self.named_parameters()))
+            mjac += torch.cat([p.reshape(n, -1) for p in jac.values()], dim=-1).detach()
 
             # Mean and outer product of b across chains
-            b = self.sampler.b  # type: ignore
+            b = sampler.b
             mb += b.mean(dim=0)
             mb2 += torch.einsum("ijk,ijl->jkl", b, b) / self.n_chains
 
-            self.sampler.run(self.n_subsample)  # type: ignore
+            sampler.run(self.n_subsample)
 
         mjac /= n_iter
         mb /= n_iter
@@ -311,48 +282,44 @@ class FitMixin(PriorMixin, LongitudinalMixin, HazardMixin, MCMCMixin, nn.Module)
         mb = torch.nan_to_num(mb, nan=0.0, posinf=1e6, neginf=-1e6)
         covs = torch.nan_to_num(covs, nan=0.0, posinf=1e6, neginf=0.0)
         covs = 0.5 * (covs + covs.mT)
-        try:
-            proposal = MultivariateNormal(mb, covariance_matrix=covs)
-        except (ValueError, RuntimeError):
-            # Empirical covariance may be singular; add a small relative jitter
-            jitter = 1e-6 * covs.diagonal(dim1=-2, dim2=-1).mean().clamp(min=1e-6)
-            eye = torch.eye(q, dtype=covs.dtype, device=covs.device)
+        variances = covs.diagonal(dim1=-2, dim2=-1)
+        jitter = 1e-6 * variances.mean().clamp(min=1e-6)
+        # Empirical covariance may be singular: add a small relative jitter, and as a
+        # last resort use a diagonal proposal with floored variances
+        for cov in (
+            lambda: covs,
+            lambda: covs + jitter * torch.eye(q, dtype=dtype, device=device),
+            lambda: torch.diag_embed(variances.clamp(min=1e-6)),
+        ):
             try:
-                proposal = MultivariateNormal(
-                    mb, covariance_matrix=covs + jitter * eye
-                )
+                proposal = MultivariateNormal(mb, covariance_matrix=cov())
+                break
             except (ValueError, RuntimeError):
-                # Last resort: diagonal proposal with floored variances
-                var = covs.diagonal(dim1=-2, dim2=-1).clamp(min=1e-6)
-                proposal = MultivariateNormal(
-                    mb, covariance_matrix=torch.diag_embed(var)
-                )
+                pass
 
         # Estimate each subject's marginal likelihood in bounded-memory batches
-        log_weight_sum = torch.full((n,), -torch.inf, dtype=working, device=device)
+        log_weight_sum = torch.full((n,), -torch.inf, dtype=dtype, device=device)
         with torch.no_grad():
             for start in trange(
                 0,
                 n_importance_samples,
                 importance_batch_size,
                 desc="Computing importance-sampling likelihood",
-                disable=not bool(self.verbose),
+                disable=disable,
             ):
-                batch_size = min(importance_batch_size, n_importance_samples - start)
-                samples = proposal.sample((batch_size,))
-                log_weights = self.sampler.logpdfs_fn(samples) - proposal.log_prob(
-                    samples
-                )
+                size = min(importance_batch_size, n_importance_samples - start)
+                samples = proposal.sample((size,))
+                log_weights = sampler.logpdfs_fn(samples) - proposal.log_prob(samples)
                 log_weight_sum = torch.logaddexp(
-                    log_weight_sum, torch.logsumexp(log_weights, dim=0)
+                    log_weight_sum, log_weights.logsumexp(dim=0)
                 )
 
         self.loglik_ = (log_weight_sum - log(n_importance_samples)).sum().item()
         self.aic_ = -2 * self.loglik_ + 2 * self.params.numel()
-        fim_sign, fim_logdet = torch.linalg.slogdet(self.fim_)
+        sign, logdet = torch.linalg.slogdet(self.fim_)
         self.bic_ = (
-            -2 * self.loglik_ + fim_logdet.item()
-            if fim_sign > 0 and torch.isfinite(fim_logdet)
+            -2 * self.loglik_ + logdet.item()
+            if sign > 0 and torch.isfinite(logdet)
             else None
         )
 

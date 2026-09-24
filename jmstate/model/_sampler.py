@@ -40,6 +40,8 @@ class MCMCMixin:
             init_step_size (float): Kernel step in Metropolis-Hastings.
             adapt_rate (float): Adaptation rate for the step_size.
             target_accept_rate (float): Mean acceptance target.
+            *args (Any): Positional arguments forwarded to the next mixin.
+            **kwargs (Any): Keyword arguments forwarded to the next mixin.
         """
         super().__init__(*args, **kwargs)
 

@@ -43,6 +43,31 @@ def _validate_fields(instance: Any, constraints: dict[str, list[Any]]) -> None:
     )
 
 
+def _rows(idxs: Integral | Sequence[Integral] | torch.Tensor) -> list[int]:
+    """Normalizes indices to a flat list of rows.
+
+    Args:
+        idxs (Integral | Sequence[Integral] | torch.Tensor): The index or indices.
+
+    Returns:
+        list[int]: The selected rows.
+    """
+    return torch.as_tensor(idxs).flatten().tolist()
+
+
+def _select(tensor: torch.Tensor, rows: list[int]) -> torch.Tensor:
+    """Selects rows along the first axis.
+
+    Args:
+        tensor (torch.Tensor): The tensor to index.
+        rows (list[int]): The rows to select.
+
+    Returns:
+        torch.Tensor: The selected rows.
+    """
+    return tensor[torch.as_tensor(rows, device=tensor.device)]
+
+
 @dataclass
 class ModelDesign(BaseEstimator):
     r"""Dataclass encapsulating the design of a multistate joint model.
@@ -216,23 +241,13 @@ class ModelData(BaseEstimator):
         Returns:
             Self: The data for the individual(s).
         """
-        rows = torch.as_tensor(idxs).flatten().tolist()
-
-        def select(tensor: torch.Tensor) -> torch.Tensor:
-            return tensor[torch.as_tensor(rows, device=tensor.device)]
-
-        x_selected = select(self.x)
-        t_selected = self.t if self.t.dim() == 1 else select(self.t)
-        y_selected = select(self.y)
-        trajectories_selected = [self.trajectories[i] for i in rows]
-        c_selected = select(self.c)
-
+        rows = _rows(idxs)
         return self.__class__(
-            x=x_selected,
-            t=t_selected,
-            y=y_selected,
-            trajectories=trajectories_selected,
-            c=c_selected,
+            x=_select(self.x, rows),
+            t=self.t if self.t.dim() == 1 else _select(self.t, rows),
+            y=_select(self.y, rows),
+            trajectories=[self.trajectories[i] for i in rows],
+            c=_select(self.c, rows),
         )
 
     def to(
@@ -342,10 +357,7 @@ class ModelDataUnchecked(ModelData):
             Self: The prepared (completed) data.
         """
         dtype, device = dtype_device(model.params)
-        self.x = self.x.to(dtype=dtype, device=device)
-        self.t = self.t.to(dtype=dtype, device=device)
-        self.y = self.y.to(dtype=dtype, device=device)
-        self.c = self.c.to(dtype=dtype, device=device)
+        self.to(dtype=dtype, device=device)
 
         self.valid_mask = ~self.y.isnan()
         self.n_valid = self.valid_mask.sum(dim=-2).to(dtype)
@@ -429,23 +441,14 @@ class SampleData(BaseEstimator):
         Returns:
             Self: The data for the individual(s).
         """
-        rows = torch.as_tensor(idxs).flatten().tolist()
-
-        def select(tensor: torch.Tensor) -> torch.Tensor:
-            return tensor[torch.as_tensor(rows, device=tensor.device)]
-
-        x_selected = select(self.x)
-        trajectories_selected = [self.trajectories[i] for i in rows]
-        indiv_params_selected = self.indiv_params[
-            ..., torch.as_tensor(rows, device=self.indiv_params.device), :
-        ]
-        t_cond_selected = None if self.t_cond is None else select(self.t_cond)
-
+        rows = _rows(idxs)
         return self.__class__(
-            x=x_selected,
-            trajectories=trajectories_selected,
-            indiv_params=indiv_params_selected,
-            t_cond=t_cond_selected,
+            x=_select(self.x, rows),
+            trajectories=[self.trajectories[i] for i in rows],
+            indiv_params=self.indiv_params[
+                ..., torch.as_tensor(rows, device=self.indiv_params.device), :
+            ],
+            t_cond=None if self.t_cond is None else _select(self.t_cond, rows),
         )
 
     def to(

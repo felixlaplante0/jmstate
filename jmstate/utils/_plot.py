@@ -134,19 +134,9 @@ def plot_mcmc_diagnostics(
     fig, axes = plt.subplots(1, 2, figsize=figsize)  # type: ignore
     axes = atleast_1d(axes).ravel()
 
-    accept_rates = (
-        torch.stack(model.sampler.diagnostics_["mean_accept_rate"])
-        .detach()
-        .float()
-        .cpu()
-        .tolist()
-    )
-    step_sizes = (
-        torch.stack(model.sampler.diagnostics_["mean_step_size"])
-        .detach()
-        .float()
-        .cpu()
-        .tolist()
+    accept_rates, step_sizes = (
+        torch.stack(model.sampler.diagnostics_[name]).detach().float().cpu().tolist()
+        for name in ("mean_accept_rate", "mean_step_size")
     )
 
     axes[0].plot(accept_rates)

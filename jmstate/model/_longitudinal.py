@@ -1,5 +1,3 @@
-from typing import Any
-
 import torch
 
 from ..types._data import ModelDataUnchecked, ModelDesign
@@ -12,10 +10,6 @@ class LongitudinalMixin:
 
     design: ModelDesign
     params: ModelParameters
-
-    def __init__(self, *args: Any, **kwargs: Any):
-        """Initializes the longitudinal mixin."""
-        super().__init__(*args, **kwargs)
 
     def _longitudinal_logliks(
         self, data: ModelDataUnchecked, indiv_params: torch.Tensor
