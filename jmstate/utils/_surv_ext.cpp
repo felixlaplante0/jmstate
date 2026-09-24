@@ -1,6 +1,5 @@
 #include <cstddef>
 #include <cstdint>
-#include <cstring>
 #include <unordered_map>
 #include <vector>
 
@@ -16,40 +15,21 @@ struct Bucket {
     std::vector<uint8_t> obs;
 };
 
-template <typename T>
-py::array_t<T> to_array(const std::vector<T> &values) {
-    py::array_t<T> out(static_cast<py::ssize_t>(values.size()));
-    if (!values.empty()) {
-        std::memcpy(out.mutable_data(), values.data(), values.size() * sizeof(T));
-    }
-    return out;
-}
-
-py::array_t<bool> to_mask(const std::vector<uint8_t> &values) {
-    py::array_t<bool> out(static_cast<py::ssize_t>(values.size()));
-    if (!values.empty()) {
-        std::memcpy(out.mutable_data(), values.data(), values.size());
+template <typename Out, typename In>
+py::array_t<Out> to_array(const std::vector<In> &values) {
+    py::array_t<Out> out(static_cast<py::ssize_t>(values.size()));
+    Out *dst = out.mutable_data();
+    for (size_t i = 0; i < values.size(); ++i) {
+        dst[i] = static_cast<Out>(values[i]);
     }
     return out;
 }
 
 py::array to_time_array(const std::vector<double> &values, bool float64) {
     if (float64) {
-        py::array_t<double> out(static_cast<py::ssize_t>(values.size()));
-        if (!values.empty()) {
-            std::memcpy(out.mutable_data(), values.data(),
-                        values.size() * sizeof(double));
-        }
-        return out;
+        return to_array<double>(values);
     }
-    py::array_t<float> out(static_cast<py::ssize_t>(values.size()));
-    if (!values.empty()) {
-        float *dst = out.mutable_data();
-        for (size_t i = 0; i < values.size(); ++i) {
-            dst[i] = static_cast<float>(values[i]);
-        }
-    }
-    return out;
+    return to_array<float>(values);
 }
 
 struct PyObjHash {
@@ -64,23 +44,12 @@ struct PyObjEq {
     }
 };
 
-using AltMap =
-    std::unordered_map<py::object, std::vector<py::ssize_t>, PyObjHash, PyObjEq>;
-
-py::ssize_t find_or_create(py::dict &registry, std::vector<Bucket> &buckets,
-                           std::vector<py::object> &keys, const py::tuple &key) {
-    PyObject *existing = PyDict_GetItemWithError(registry.ptr(), key.ptr());
-    if (existing != nullptr) {
-        return py::cast<py::ssize_t>(py::reinterpret_borrow<py::object>(existing));
+py::list checked_trajectory(const py::list &trajectories, py::ssize_t i) {
+    py::list trajectory = trajectories[i];
+    if (py::len(trajectory) == 0) {
+        throw py::value_error("Trajectories must not be empty");
     }
-    if (PyErr_Occurred()) {
-        throw py::error_already_set();
-    }
-    const py::ssize_t index = static_cast<py::ssize_t>(buckets.size());
-    registry[key] = index;
-    buckets.emplace_back();
-    keys.emplace_back(py::reinterpret_borrow<py::object>(key));
-    return index;
+    return trajectory;
 }
 
 py::dict _build_buckets(const py::list &trajectories, bool float64) {
@@ -90,22 +59,29 @@ py::dict _build_buckets(const py::list &trajectories, bool float64) {
 
     const py::ssize_t n = py::len(trajectories);
     for (py::ssize_t i = 0; i < n; ++i) {
-        const py::list trajectory = trajectories[i];
+        const py::list trajectory = checked_trajectory(trajectories, i);
         const py::ssize_t m = py::len(trajectory);
-        if (m == 0) {
-            throw py::value_error("Trajectories must not be empty");
-        }
         py::tuple p0 = py::cast<py::tuple>(trajectory[0]);
         for (py::ssize_t j = 1; j < m; ++j) {
             const py::tuple p1 = py::cast<py::tuple>(trajectory[j]);
-            const double t0 = p0[0].cast<double>();
-            const double t1 = p1[0].cast<double>();
             const py::tuple key = py::make_tuple(p0[1], p1[1]);
-            const py::ssize_t index = find_or_create(registry, buckets, keys, key);
-            Bucket &bucket = buckets[static_cast<size_t>(index)];
+            PyObject *existing = PyDict_GetItemWithError(registry.ptr(), key.ptr());
+            if (existing == nullptr && PyErr_Occurred()) {
+                throw py::error_already_set();
+            }
+            size_t index;
+            if (existing != nullptr) {
+                index = py::cast<size_t>(py::handle(existing));
+            } else {
+                index = buckets.size();
+                registry[key] = index;
+                buckets.emplace_back();
+                keys.emplace_back(key);
+            }
+            Bucket &bucket = buckets[index];
             bucket.idxs.push_back(static_cast<int64_t>(i));
-            bucket.t0s.push_back(t0);
-            bucket.t1s.push_back(t1);
+            bucket.t0s.push_back(p0[0].cast<double>());
+            bucket.t1s.push_back(p1[0].cast<double>());
             p0 = p1;
         }
     }
@@ -113,158 +89,110 @@ py::dict _build_buckets(const py::list &trajectories, bool float64) {
     py::dict out;
     for (size_t k = 0; k < buckets.size(); ++k) {
         const Bucket &bucket = buckets[k];
-        out[keys[k]] = py::make_tuple(to_array(bucket.idxs),
+        out[keys[k]] = py::make_tuple(to_array<int64_t>(bucket.idxs),
                                       to_time_array(bucket.t0s, float64),
                                       to_time_array(bucket.t1s, float64));
     }
     return out;
 }
 
-void build_alt_map(const py::list &link_keys, AltMap &alt_map,
-                   std::vector<py::object> &dest_states) {
-    dest_states.reserve(static_cast<size_t>(py::len(link_keys)));
-    for (const py::handle key_h : link_keys) {
-        const py::tuple key = py::cast<py::tuple>(key_h);
-        dest_states.emplace_back(py::reinterpret_borrow<py::object>(key[1]));
-        py::object src = py::reinterpret_borrow<py::object>(key[0]);
-        alt_map[std::move(src)].push_back(
-            static_cast<py::ssize_t>(dest_states.size() - 1));
+class LinkBuckets {
+  public:
+    explicit LinkBuckets(const py::list &link_keys)
+        : link_keys_(link_keys), buckets_(py::len(link_keys)),
+          used_(py::len(link_keys), 0) {
+        for (const py::handle key_h : link_keys) {
+            const py::tuple key = py::cast<py::tuple>(key_h);
+            dest_states_.emplace_back(py::reinterpret_borrow<py::object>(key[1]));
+            alt_map_[py::reinterpret_borrow<py::object>(key[0])].push_back(
+                dest_states_.size() - 1);
+        }
     }
-}
+
+    void add(py::ssize_t i, const py::handle &s0, double t0, double t1,
+             const py::object *s1) {
+        const auto it = alt_map_.find(py::reinterpret_borrow<py::object>(s0));
+        if (it == alt_map_.end()) {
+            return;
+        }
+        for (const size_t k : it->second) {
+            if (!used_[k]) {
+                used_[k] = 1;
+                order_.push_back(k);
+            }
+            Bucket &bucket = buckets_[k];
+            bucket.idxs.push_back(static_cast<int64_t>(i));
+            bucket.t0s.push_back(t0);
+            bucket.t1s.push_back(t1);
+            bucket.obs.push_back(s1 != nullptr && dest_states_[k].equal(*s1));
+        }
+    }
+
+    void add_tail(py::ssize_t i, const py::tuple &last, double c_i) {
+        const double last_t = last[0].cast<double>();
+        if (last_t < c_i) {
+            add(i, last[1], last_t, c_i, nullptr);
+        }
+    }
+
+    template <typename F> py::dict collect(F &&make_value) const {
+        py::dict out;
+        for (const size_t k : order_) {
+            out[link_keys_[static_cast<py::ssize_t>(k)]] = make_value(buckets_[k]);
+        }
+        return out;
+    }
+
+  private:
+    const py::list &link_keys_;
+    std::unordered_map<py::object, std::vector<size_t>, PyObjHash, PyObjEq>
+        alt_map_;
+    std::vector<py::object> dest_states_;
+    std::vector<Bucket> buckets_;
+    std::vector<uint8_t> used_;
+    std::vector<size_t> order_;
+};
 
 py::dict _build_quad_buckets(const py::list &trajectories, const py::list &link_keys,
                              const py::list &censoring, bool float64) {
-    AltMap alt_map;
-    std::vector<py::object> dest_states;
-    build_alt_map(link_keys, alt_map, dest_states);
-
-    const size_t n_links = static_cast<size_t>(py::len(link_keys));
-    std::vector<Bucket> buckets(n_links);
-    std::vector<uint8_t> used(n_links, 0);
-    std::vector<size_t> order;
-    order.reserve(n_links);
-
+    LinkBuckets buckets(link_keys);
     const py::ssize_t n = py::len(trajectories);
     for (py::ssize_t i = 0; i < n; ++i) {
-        const py::list trajectory = trajectories[i];
+        const py::list trajectory = checked_trajectory(trajectories, i);
         const py::ssize_t m = py::len(trajectory);
-        if (m == 0) {
-            throw py::value_error("Trajectories must not be empty");
-        }
         py::tuple p0 = py::cast<py::tuple>(trajectory[0]);
         for (py::ssize_t j = 1; j < m; ++j) {
             const py::tuple p1 = py::cast<py::tuple>(trajectory[j]);
-            const double t0 = p0[0].cast<double>();
-            const double t1 = p1[0].cast<double>();
-            const py::object s0 = py::reinterpret_borrow<py::object>(p0[1]);
-            const py::object s1 = py::reinterpret_borrow<py::object>(p1[1]);
-            const auto it = alt_map.find(s0);
-            if (it != alt_map.end()) {
-                for (const py::ssize_t k : it->second) {
-                    const auto idx = static_cast<size_t>(k);
-                    if (!used[idx]) {
-                        used[idx] = 1;
-                        order.push_back(idx);
-                    }
-                    Bucket &bucket = buckets[idx];
-                    bucket.idxs.push_back(static_cast<int64_t>(i));
-                    bucket.t0s.push_back(t0);
-                    bucket.t1s.push_back(t1);
-                    bucket.obs.push_back(dest_states[idx].equal(s1) ? 1 : 0);
-                }
-            }
+            const py::object s1 = p1[1];
+            buckets.add(i, p0[1], p0[0].cast<double>(), p1[0].cast<double>(), &s1);
             p0 = p1;
         }
-
-        const double last_t = p0[0].cast<double>();
-        const double c_i = censoring[i].cast<double>();
-        if (last_t >= c_i) {
-            continue;
-        }
-        const py::object last_s = py::reinterpret_borrow<py::object>(p0[1]);
-        const auto it = alt_map.find(last_s);
-        if (it == alt_map.end()) {
-            continue;
-        }
-        for (const py::ssize_t k : it->second) {
-            const auto idx = static_cast<size_t>(k);
-            if (!used[idx]) {
-                used[idx] = 1;
-                order.push_back(idx);
-            }
-            Bucket &bucket = buckets[idx];
-            bucket.idxs.push_back(static_cast<int64_t>(i));
-            bucket.t0s.push_back(last_t);
-            bucket.t1s.push_back(c_i);
-            bucket.obs.push_back(0);
-        }
+        buckets.add_tail(i, p0, censoring[i].cast<double>());
     }
 
-    py::dict out;
-    for (const size_t k : order) {
-        const Bucket &bucket = buckets[k];
-        py::object key =
-            py::reinterpret_borrow<py::object>(link_keys[static_cast<py::ssize_t>(k)]);
-        out[key] = py::make_tuple(to_array(bucket.idxs),
-                                  to_time_array(bucket.t0s, float64),
-                                  to_time_array(bucket.t1s, float64),
-                                  to_mask(bucket.obs));
-    }
-    return out;
+    return buckets.collect([float64](const Bucket &bucket) {
+        return py::make_tuple(to_array<int64_t>(bucket.idxs),
+                              to_time_array(bucket.t0s, float64),
+                              to_time_array(bucket.t1s, float64),
+                              to_array<bool>(bucket.obs));
+    });
 }
 
 py::dict _build_remaining_buckets(const py::list &trajectories,
                                   const py::list &link_keys,
                                   const py::list &censoring, bool float64) {
-    AltMap alt_map;
-    std::vector<py::object> dest_states;
-    build_alt_map(link_keys, alt_map, dest_states);
-
-    const size_t n_links = static_cast<size_t>(py::len(link_keys));
-    std::vector<Bucket> buckets(n_links);
-    std::vector<uint8_t> used(n_links, 0);
-    std::vector<size_t> order;
-    order.reserve(n_links);
-
+    LinkBuckets buckets(link_keys);
     const py::ssize_t n = py::len(trajectories);
     for (py::ssize_t i = 0; i < n; ++i) {
-        const py::list trajectory = trajectories[i];
-        const py::ssize_t m = py::len(trajectory);
-        if (m == 0) {
-            throw py::value_error("Trajectories must not be empty");
-        }
-        const py::tuple last = py::cast<py::tuple>(trajectory[m - 1]);
-        const double last_t = last[0].cast<double>();
-        const double c_i = censoring[i].cast<double>();
-        if (last_t >= c_i) {
-            continue;
-        }
-        const py::object last_s = py::reinterpret_borrow<py::object>(last[1]);
-        const auto it = alt_map.find(last_s);
-        if (it == alt_map.end()) {
-            continue;
-        }
-        for (const py::ssize_t k : it->second) {
-            const auto idx = static_cast<size_t>(k);
-            if (!used[idx]) {
-                used[idx] = 1;
-                order.push_back(idx);
-            }
-            Bucket &bucket = buckets[idx];
-            bucket.idxs.push_back(static_cast<int64_t>(i));
-            bucket.t0s.push_back(last_t);
-        }
+        const py::list trajectory = checked_trajectory(trajectories, i);
+        buckets.add_tail(i, py::cast<py::tuple>(trajectory[py::len(trajectory) - 1]),
+                         censoring[i].cast<double>());
     }
 
-    py::dict out;
-    for (const size_t k : order) {
-        const Bucket &bucket = buckets[k];
-        py::object key =
-            py::reinterpret_borrow<py::object>(link_keys[static_cast<py::ssize_t>(k)]);
-        out[key] = py::make_tuple(to_array(bucket.idxs),
-                                  to_time_array(bucket.t0s, float64));
-    }
-    return out;
+    return buckets.collect([float64](const Bucket &bucket) {
+        return py::make_tuple(to_array<int64_t>(bucket.idxs),
+                              to_time_array(bucket.t0s, float64));
+    });
 }
 
 PYBIND11_MODULE(_surv_ext, m, py::mod_gil_not_used()) {

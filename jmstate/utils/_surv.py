@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from functools import cache
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -18,6 +19,28 @@ if TYPE_CHECKING:
     from ..model._hazard import HazardMixin
 
 
+@cache
+def _quad_tensors(
+    n_quad: int, dtype: torch.dtype, device: torch.device
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Gets cached Gauss-Legendre nodes and weights.
+
+    Args:
+        n_quad (int): Number of quadrature nodes.
+        dtype (torch.dtype): Target dtype.
+        device (torch.device): Target device.
+
+    Returns:
+        tuple[torch.Tensor, torch.Tensor]: Nodes of shape ``(1, n_quad)`` and
+            weights of shape ``(n_quad,)``.
+    """
+    nodes, weights = np.polynomial.legendre.leggauss(n_quad)  # type: ignore
+    return (
+        torch.tensor(nodes, dtype=dtype, device=device).unsqueeze(0),
+        torch.tensor(weights, dtype=dtype, device=device),
+    )
+
+
 def _from_numpy(values: np.ndarray, dtype: torch.dtype) -> torch.Tensor:
     """Wraps a NumPy array, degrading gracefully without NumPy interop.
 
@@ -28,6 +51,10 @@ def _from_numpy(values: np.ndarray, dtype: torch.dtype) -> torch.Tensor:
     Args:
         values (np.ndarray): One-dimensional source array.
         dtype (torch.dtype): Target tensor dtype.
+
+    Raises:
+        RuntimeError: If the conversion fails for another reason than missing
+            NumPy interop.
 
     Returns:
         torch.Tensor: The wrapped tensor, sharing memory with ``values`` when the
@@ -41,40 +68,25 @@ def _from_numpy(values: np.ndarray, dtype: torch.dtype) -> torch.Tensor:
         return torch.tensor(values.tolist(), dtype=dtype)
 
 
-def _column(
-    values: np.ndarray, dtype: torch.dtype, device: torch.device | None
+def _tensor(
+    values: np.ndarray, dtype: torch.dtype, device: torch.device | None = None
 ) -> torch.Tensor:
-    """Wraps a 1D time array into a ``(k, 1)`` float column.
+    """Wraps a 1D array into a tensor, as a ``(k, 1)`` column for floating dtypes.
 
     Shares memory with ``values`` when no dtype conversion or device transfer is
     needed, so the returned tensor must not outlive it (it holds a reference).
 
     Args:
-        values (np.ndarray): One-dimensional transition times of shape ``(k,)``.
-        dtype (torch.dtype): Floating-point output dtype.
-        device (torch.device | None): Target device, or None to keep the tensor
-            where ``values`` is wrapped.
+        values (np.ndarray): One-dimensional source array of shape ``(k,)``.
+        dtype (torch.dtype): Output dtype.
+        device (torch.device | None, optional): Target device, or None to keep the
+            tensor where ``values`` is wrapped. Defaults to None.
 
     Returns:
-        torch.Tensor: Column vector of shape ``(k, 1)`` and dtype ``dtype``.
+        torch.Tensor: Column of shape ``(k, 1)`` for floating dtypes, else ``(k,)``.
     """
-    out = _from_numpy(values, dtype).reshape(-1, 1)
-    return out.to(device) if device is not None else out
-
-
-def _index(values: np.ndarray, device: torch.device | None) -> torch.Tensor:
-    """Wraps a 1D index array into an ``int64`` tensor.
-
-    Args:
-        values (np.ndarray): One-dimensional indices of shape ``(k,)``.
-        device (torch.device | None): Target device, or None to keep the tensor
-            where ``values`` is wrapped.
-
-    Returns:
-        torch.Tensor: Index vector of shape ``(k,)`` and dtype ``torch.int64``.
-    """
-    out = _from_numpy(values, torch.int64)
-    return out.to(device) if device is not None else out
+    out = _from_numpy(values, dtype).to(device=device)
+    return out.reshape(-1, 1) if dtype.is_floating_point else out
 
 
 @validate_params(
@@ -102,9 +114,7 @@ def build_buckets(
     dtype = model_dtype()
     result = {
         key: BucketData(
-            _index(idxs, None),
-            _column(t0s, dtype, None),
-            _column(t1s, dtype, None),
+            _tensor(idxs, torch.int64), _tensor(t0s, dtype), _tensor(t1s, dtype)
         )
         for key, (idxs, t0s, t1s) in _build_buckets(
             trajectories, dtype == torch.float64
@@ -132,6 +142,9 @@ def _bucket_inputs(
         c (torch.Tensor): Censoring times.
         censoring (list[float] | None, optional): Host censoring times to reuse
             instead of converting ``c`` again. Defaults to None.
+
+    Raises:
+        ValueError: If the number of censoring times and trajectories differ.
 
     Returns:
         tuple[torch.dtype, torch.device, list[tuple[Any, Any]], list[float]]:
@@ -172,16 +185,19 @@ def build_quad_buckets(
         trajectories, link_keys, censoring, dtype == torch.float64
     )
 
-    nodes, _weights = model._quad_nodes_weights(dtype, device)
+    nodes, _weights = _quad_tensors(model.n_quad, dtype, device)
     out: dict[tuple[Any, Any], tuple[torch.Tensor, ...]] = {}
     for key, (idxs, t0s, t1s, obs) in raw.items():
-        idxs_ = _index(idxs, device)
-        t0_ = _column(t0s, dtype, device)
-        t1_ = _column(t1s, dtype, device)
-        obs_ = _from_numpy(obs, torch.bool).to(device=device)
-        half = 0.5 * (t1_ - t0_)
-        quad = torch.cat([t1_, 0.5 * (t0_ + t1_) + half * nodes], dim=-1)
-        out[key] = (idxs_, t0_, obs_, half, quad)
+        t0, t1 = _tensor(t0s, dtype, device), _tensor(t1s, dtype, device)
+        half = 0.5 * (t1 - t0)
+        quad = torch.cat([t1, 0.5 * (t0 + t1) + half * nodes], dim=-1)
+        out[key] = (
+            _tensor(idxs, torch.int64, device),
+            t0,
+            _tensor(obs, torch.bool, device),
+            half,
+            quad,
+        )
 
     return out
 
@@ -219,8 +235,8 @@ def build_remaining_buckets(
     c_full = c.reshape(-1, 1).to(dtype=dtype, device=device)
     return {
         key: (
-            idxs_tensor := _index(idxs, device),
-            _column(t0s, dtype, device),
+            idxs_tensor := _tensor(idxs, torch.int64, device),
+            _tensor(t0s, dtype, device),
             c_full[idxs_tensor],
         )
         for key, (idxs, t0s) in raw.items()
