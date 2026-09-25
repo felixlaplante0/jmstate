@@ -1,3 +1,5 @@
+"""Dtype and device resolution utilities."""
+
 import torch
 from torch import nn
 
