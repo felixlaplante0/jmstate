@@ -17,7 +17,7 @@ from ..types._data import (
 from ..types._defs import LOG_CLAMP, Trajectory
 from ..types._parameters import ModelParameters
 from ..utils._checks import check_finite
-from ..utils._surv import _host_times, _quad_tensors, build_remaining_buckets
+from ..utils._surv import _quad_tensors, build_remaining_buckets
 from ..utils.dtype import dtype_device
 
 
@@ -463,7 +463,7 @@ class HazardMixin:
         flat.x, flat.indiv_params, flat.t_cond = self._align_sample_data(flat)
         c_flat = _rep(c)
         c_model = c_flat.to(dtype=flat.x.dtype, device=flat.x.device)
-        censoring = _host_times(c_flat)
+        censoring = c_flat.reshape(-1).to(dtype=torch.float64, device="cpu").tolist()
 
         # Sample future transitions iteratively
         for _ in range(max_length):

@@ -18,32 +18,6 @@ from ..types._defs import LOG_CLAMP, LOG_TWO_PI, LogBaseHazardFn
 _CLOCK_TYPES = [StrOptions({"sojourn", "absolute"})]
 
 
-def _clock_time(clock_type: str, t0: torch.Tensor, t1: torch.Tensor) -> torch.Tensor:
-    """Returns the time fed to the base hazard according to the clock type.
-
-    Args:
-        clock_type (str): Either ``"sojourn"`` or ``"absolute"``.
-        t0 (torch.Tensor): The previous transition times.
-        t1 (torch.Tensor): The evaluation times.
-
-    Returns:
-        torch.Tensor: ``t1 - t0`` for a sojourn clock, else ``t1``.
-    """
-    return t1 - t0 if clock_type == "sojourn" else t1
-
-
-def _log_time(t: torch.Tensor) -> torch.Tensor:
-    """Computes the clamped logarithm of times.
-
-    Args:
-        t (torch.Tensor): The times.
-
-    Returns:
-        torch.Tensor: The log times clamped from below by ``-LOG_CLAMP``.
-    """
-    return torch.log(t).clamp(min=-LOG_CLAMP)
-
-
 def _register(module: nn.Module, frozen: bool, **tensors: torch.Tensor) -> None:
     """Registers tensors as buffers if frozen, else as parameters, in order.
 
@@ -102,7 +76,7 @@ class Neural(LogBaseHazardFn):
         Returns:
             torch.Tensor: The computed base hazard in log scale, shaped as `t1`.
         """
-        t = _clock_time(self.clock_type, t0, t1)
+        t = t1 - t0 if self.clock_type == "sojourn" else t1
         first = next(self.nn.parameters(), None)
         if first is not None:
             t = t.to(first.dtype)
@@ -260,8 +234,8 @@ class Weibull(LogBaseHazardFn):
         Returns:
             torch.Tensor: The computed base hazard in log scale.
         """
-        t = _clock_time(self.clock_type, t0, t1)
-        log_t = _log_time(t)
+        t = t1 - t0 if self.clock_type == "sojourn" else t1
+        log_t = torch.log(t).clamp(min=-LOG_CLAMP)
         return self.log_k + self.k * self.log_lmda + (self.k - 1) * log_t
 
     @property
@@ -357,7 +331,7 @@ class Gompertz(LogBaseHazardFn):
         Returns:
             torch.Tensor: The computed base hazard in log scale.
         """
-        t = _clock_time(self.clock_type, t0, t1)
+        t = t1 - t0 if self.clock_type == "sojourn" else t1
         return self.log_a + self.b * t
 
     @property
@@ -457,8 +431,8 @@ class LogNormal(LogBaseHazardFn):
         Returns:
             torch.Tensor: The computed base hazard in log scale.
         """
-        t = _clock_time(self.clock_type, t0, t1)
-        log_t = _log_time(t)
+        t = t1 - t0 if self.clock_type == "sojourn" else t1
+        log_t = torch.log(t).clamp(min=-LOG_CLAMP)
         z = (log_t - self.mu) / self.scale
         log_pdf = -log_t - self.log_scale - 0.5 * LOG_TWO_PI - 0.5 * z**2
         log_sf = cast(torch.Tensor, torch.special.log_ndtr(-z))  # type: ignore

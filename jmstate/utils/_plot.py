@@ -15,22 +15,6 @@ if TYPE_CHECKING:
     from ..model._base import MultiStateJointModel
 
 
-def _check_model(model: MultiStateJointModel, caller_name: str) -> None:
-    """Checks that the model is a multistate joint model.
-
-    Args:
-        model (MultiStateJointModel): The model to check.
-        caller_name (str): The calling function name used in error messages.
-    """
-    from ..model._base import MultiStateJointModel  # noqa: PLC0415
-
-    validate_parameter_constraints(
-        {"model": [MultiStateJointModel]},
-        {"model": model},
-        caller_name=caller_name,
-    )
-
-
 @validate_params(
     {
         "figsize": [tuple],
@@ -62,7 +46,13 @@ def plot_params_history(
         tuple[plt.Figure, np.ndarray]: A tuple containing the matplotlib `Figure` object
         and a flattened array of `Axes` objects corresponding to the subplots.
     """
-    _check_model(model, "plot_params_history")
+    from ..model._base import MultiStateJointModel  # noqa: PLC0415
+
+    validate_parameter_constraints(
+        {"model": [MultiStateJointModel]},
+        {"model": model},
+        caller_name="plot_params_history",
+    )
 
     if len(model.params_history_) <= 1:
         raise ValueError("More than one recorded parameter is required to plot")
@@ -125,7 +115,13 @@ def plot_mcmc_diagnostics(
         tuple[plt.Figure, np.ndarray]: A tuple containing the matplotlib `Figure` object
         and a flattened array of `Axes` objects corresponding to the subplots.
     """
-    _check_model(model, "plot_mcmc_diagnostics")
+    from ..model._base import MultiStateJointModel  # noqa: PLC0415
+
+    validate_parameter_constraints(
+        {"model": [MultiStateJointModel]},
+        {"model": model},
+        caller_name="plot_mcmc_diagnostics",
+    )
 
     if model.sampler is None:
         raise ValueError("Model sampler is None")
