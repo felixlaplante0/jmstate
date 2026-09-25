@@ -10,7 +10,6 @@ from sklearn.utils._param_validation import Interval, validate_params  # type: i
 from torch import nn
 from torch.distributions import MultivariateNormal
 from torch.func import jacfwd  # type: ignore
-from torch.nn.utils import parameters_to_vector
 from torch.nn.utils.stateless import _reparametrize_module  # type: ignore
 from tqdm import trange
 
@@ -21,7 +20,8 @@ from ..types._data import (
     prepare_model_data,
 )
 from ..types._parameters import ModelParameters
-from ..utils._dtype import dtype_device
+from ..utils._linalg import add_jitter
+from ..utils.dtype import dtype_device
 from ._hazard import HazardMixin
 from ._longitudinal import LongitudinalMixin
 from ._prior import PriorMixin
@@ -157,19 +157,17 @@ class FitMixin(PriorMixin, LongitudinalMixin, HazardMixin, MCMCMixin, nn.Module)
         # Initialize MCMC
         sampler = self.sampler = self._init_sampler(data).run(self.n_warmup)
 
-        def closure() -> float:
+        def closure() -> torch.Tensor:
             self.optimizer.zero_grad()  # type: ignore
             loss = -sampler.logpdfs_fn(sampler.b).mean()
             loss.backward()  # type: ignore
-            return loss.item()
+            return loss.detach()
 
         for _ in trange(
             self.max_iter, desc="Fitting joint model", disable=not self.verbose
         ):
             self.optimizer.step(closure)  # type: ignore
-            self.params_history_.append(
-                parameters_to_vector(self.params.parameters()).detach()
-            )
+            self.params_history_.append(self.params.to_vector())
 
             # Restore logpdfs and indiv_params, because parameters changed
             sampler.reset().run(self.n_subsample)
@@ -281,14 +279,12 @@ class FitMixin(PriorMixin, LongitudinalMixin, HazardMixin, MCMCMixin, nn.Module)
         # likelihood instead of a crash.
         mb = torch.nan_to_num(mb, nan=0.0, posinf=1e6, neginf=-1e6)
         covs = torch.nan_to_num(covs, nan=0.0, posinf=1e6, neginf=0.0)
-        covs = 0.5 * (covs + covs.mT)
         variances = covs.diagonal(dim1=-2, dim2=-1)
-        jitter = 1e-6 * variances.mean().clamp(min=1e-6)
         # Empirical covariance may be singular: add a small relative jitter, and as a
         # last resort use a diagonal proposal with floored variances
         for cov in (
             lambda: covs,
-            lambda: covs + jitter * torch.eye(q, dtype=dtype, device=device),
+            lambda: add_jitter(covs),
             lambda: torch.diag_embed(variances.clamp(min=1e-6)),
         ):
             try:

@@ -15,8 +15,8 @@ from sklearn.utils.validation import (  # type: ignore
 )
 
 from ..utils._checks import check_finite, check_trajectories
-from ..utils._dtype import dtype_device
 from ..utils._surv import build_quad_buckets
+from ..utils.dtype import dtype_device
 from ._defs import IndividualParametersFn, LinkFn, RegressionFn, Trajectory
 
 if TYPE_CHECKING:

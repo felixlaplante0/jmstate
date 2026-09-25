@@ -8,6 +8,7 @@ from sklearn.utils._param_validation import (  # type: ignore
     validate_params,
 )
 from torch import nn
+from torch.nn.utils import parameters_to_vector
 
 from ..types._defs import LogBaseHazardFn, PrecisionType
 from ..utils._checks import check_finite
@@ -287,3 +288,23 @@ class ModelParameters(BaseEstimator, nn.Module):
             int: The number of the (unique) parameters.
         """
         return sum(p.numel() for p in self.parameters())
+
+    def to_vector(self) -> torch.Tensor:
+        """Return the detached parameters flattened into a single vector.
+
+        Returns:
+            torch.Tensor: The flattened parameters.
+        """
+        return parameters_to_vector(self.parameters()).detach()
+
+    def vector_names(self) -> list[str]:
+        """Return the name of each entry of :meth:`to_vector`.
+
+        Returns:
+            list[str]: Names formatted as ``"{name}[{index}]"``.
+        """
+        return [
+            f"{name}[{j}]"
+            for name, val in self.named_parameters()
+            for j in range(val.numel())
+        ]

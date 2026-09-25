@@ -11,10 +11,11 @@ from warnings import catch_warnings, simplefilter
 import numpy as np
 import pandas as pd
 import torch
-from torch.nn.utils import parameters_to_vector
 
 from jmstate.types import ModelParameters
 from jmstate.utils import confidence_interval
+
+from .utils import METRIC_SPECS
 
 
 def convergence_table(
@@ -41,7 +42,7 @@ def convergence_table(
     """
     vectors = torch.stack([record["vec"] for record in results["correct"]])
     stderrs = torch.stack([record["se"] for record in results["correct"]])
-    truth = parameters_to_vector(parameters.parameters()).detach()
+    truth = parameters.to_vector()
     errors = (vectors - truth).numpy()
     # Failed replications are stored as NaN; use NaN-aware statistics so one
     # bad fit cannot poison the whole table.
@@ -73,11 +74,7 @@ def convergence_table(
     )
     coverage_mcse = np.sqrt(coverage * (1.0 - coverage) / np.maximum(totals, 1))
 
-    names = [
-        f"{name}[{j}]"
-        for name, param in parameters.named_parameters()
-        for j in range(param.numel())
-    ]
+    names = parameters.vector_names()
     return pd.DataFrame(
         {
             "n": n,
@@ -150,7 +147,7 @@ def aggregate_metrics(
     """
     grouped = pd.DataFrame(records).groupby(list(group_columns), dropna=False)
     result = grouped.size().rename("n_records").to_frame()
-    for metric in ("auc_ipcw", "c_index_ipcw", "brier_ipcw"):
+    for metric, *_ in METRIC_SPECS:
         result[f"mean_{metric}"] = grouped[metric].mean()
         result[f"sd_{metric}"] = grouped[metric].std()
         result[f"n_valid_{metric}"] = grouped[metric].count()

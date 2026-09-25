@@ -1,6 +1,7 @@
 """Shared utilities for the jmstate experiment notebooks."""
 
 from collections.abc import Mapping, Sequence
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +12,8 @@ import torch
 from sksurv.metrics import brier_score, concordance_index_ipcw, cumulative_dynamic_auc
 from sksurv.util import Surv
 
+from jmstate import MultiStateJointModel
+from jmstate.types import ModelData, ModelDesign, ModelParameters
 from jmstate.utils import plot_mcmc_diagnostics, plot_params_history
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -329,3 +332,126 @@ def transition_survival_data(
         observed_time = event_time if events[index] else censoring[index]
         times[index] = max(0.0, observed_time - landmark)
     return eligible, times, events, initial_states
+
+
+def fit_joint_model(
+    params: ModelParameters,
+    design: ModelDesign,
+    data: ModelData,
+    device: torch.device,
+) -> MultiStateJointModel:
+    """Fit a joint model with the Adam settings shared by the notebooks.
+
+    Args:
+        params (ModelParameters): Initial model parameters.
+        design (ModelDesign): Model design.
+        data (ModelData): Training data.
+        device (torch.device): Device on which the model is fitted.
+
+    Returns:
+        MultiStateJointModel: The fitted model.
+    """
+    optimizer = torch.optim.Adam(params.parameters(), lr=0.05)
+    return (
+        MultiStateJointModel(design, params, optimizer, max_iter=10000, window_size=500)
+        .to(device)
+        .fit(data)
+    )
+
+
+def condition_on_landmark(
+    data: ModelData,
+    landmark: float,
+    device: torch.device | None = None,
+    **changes: Any,
+) -> ModelData:
+    """Restrict data to what is observable up to a landmark.
+
+    Trajectories are truncated at the landmark, later markers are masked, and
+    censoring is set to the landmark (or the last kept transition if later).
+
+    Args:
+        data (ModelData): Data to condition.
+        landmark (float): Conditioning time.
+        device (torch.device | None, optional): Device of the new censoring
+            times. Defaults to None (CPU).
+        **changes (Any): Extra fields replaced on the returned data.
+
+    Returns:
+        ModelData: The conditioned data.
+    """
+    trajectories_cond = [
+        [trajectory[0]]
+        + [(time, state) for time, state in trajectory[1:] if time <= landmark]
+        for trajectory in data.trajectories
+    ]
+    last_times = torch.tensor(
+        [trajectory[-1][0] for trajectory in trajectories_cond], device=device
+    )[:, None]
+    landmark_tensor = torch.as_tensor(landmark, dtype=torch.float32, device=device)
+    y_truncated = data.y.clone()
+    y_truncated[data.t > landmark] = torch.nan
+    return replace(
+        data,
+        y=y_truncated,
+        trajectories=trajectories_cond,
+        c=torch.maximum(last_times, landmark_tensor),
+        **changes,
+    )
+
+
+def score_landmark(
+    training_data: ModelData,
+    test_data: ModelData,
+    landmark: float,
+    target_state: int,
+    survival: np.ndarray,
+    horizons: np.ndarray,
+    extra: Mapping[str, Any],
+) -> tuple[list[dict[str, Any]], np.ndarray]:
+    """Score survival predictions for one landmark and target state.
+
+    Args:
+        training_data (ModelData): Training split for the IPCW estimator.
+        test_data (ModelData): Test split to score.
+        landmark (float): Conditioning time.
+        target_state (int): State whose first entry is the event.
+        survival (np.ndarray): Survival predictions for every test subject, of
+            shape ``(n_test, n_horizons)``.
+        horizons (np.ndarray): Absolute prediction horizons.
+        extra (Mapping[str, Any]): Fields added to each record before the
+            landmark and absolute horizon.
+
+    Returns:
+        tuple[list[dict[str, Any]], np.ndarray]: Metric records and the test
+            eligibility mask.
+    """
+    train_eligible, train_times, train_events, _ = transition_survival_data(
+        training_data.trajectories,
+        training_data.c.flatten().cpu().numpy(),
+        landmark,
+        target_state,
+    )
+    test_eligible, test_times, test_events, _ = transition_survival_data(
+        test_data.trajectories,
+        test_data.c.flatten().cpu().numpy(),
+        landmark,
+        target_state,
+    )
+    records = score_survival_predictions(
+        train_times[train_eligible],
+        train_events[train_eligible],
+        test_times[test_eligible],
+        test_events[test_eligible],
+        survival[test_eligible],
+        horizons - landmark,
+    )
+    for record in records:
+        record.update(
+            {
+                **extra,
+                "landmark": float(landmark),
+                "horizon": float(record["horizon"] + landmark),
+            }
+        )
+    return records, test_eligible

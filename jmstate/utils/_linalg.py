@@ -1,9 +1,38 @@
 from collections.abc import Callable
+from functools import cache
 from typing import Final
 
 import torch
 
 from ..types._defs import PrecisionType
+
+
+@cache
+def _tril_indices(dim: int, device: torch.device) -> tuple[torch.Tensor, ...]:
+    """Caches the lower triangular indices of a square matrix.
+
+    Args:
+        dim (int): Dimension of the matrix.
+        device (torch.device): Device of the indices.
+
+    Returns:
+        tuple[torch.Tensor, ...]: The row and column indices.
+    """
+    return tuple(torch.tril_indices(dim, dim, device=device))
+
+
+def add_jitter(mat: torch.Tensor) -> torch.Tensor:
+    """Adds a small relative jitter to the diagonal of a (batched) square matrix.
+
+    Args:
+        mat (torch.Tensor): The matrix of shape `(..., dim, dim)`.
+
+    Returns:
+        torch.Tensor: The jittered matrix.
+    """
+    jitter = 1e-6 * mat.diagonal(dim1=-2, dim2=-1).mean().clamp(min=1e-6)
+    eye = torch.eye(mat.size(-1), dtype=mat.dtype, device=mat.device)
+    return mat + jitter * eye
 
 
 def _tril_from_flat(flat: torch.Tensor, dim: int) -> torch.Tensor:
@@ -17,7 +46,7 @@ def _tril_from_flat(flat: torch.Tensor, dim: int) -> torch.Tensor:
         torch.Tensor: The lower triangular matrix.
     """
     out = torch.zeros(dim, dim, dtype=flat.dtype, device=flat.device)
-    return out.index_put_(tuple(torch.tril_indices(dim, dim, device=flat.device)), flat)
+    return out.index_put_(_tril_indices(dim, flat.device), flat)
 
 
 def _flat_from_tril(L: torch.Tensor) -> torch.Tensor:
@@ -32,7 +61,7 @@ def _flat_from_tril(L: torch.Tensor) -> torch.Tensor:
         torch.Tensor: Flattened 1D tensor containing the lower triangular entries.
     """
     dim = L.size(0)
-    return L[tuple(torch.tril_indices(dim, dim, device=L.device))]
+    return L[_tril_indices(dim, L.device)]
 
 
 _N_ELEMENTS: Final[dict[str, Callable[[int], int]]] = {

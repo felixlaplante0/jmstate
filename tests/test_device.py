@@ -13,8 +13,8 @@ from jmstate.types import SampleData
 from jmstate.types._data import ModelDataUnchecked
 from jmstate.utils import _surv as surv
 from jmstate.utils._checks import check_finite
-from jmstate.utils._dtype import dtype_device
 from jmstate.utils._surv import build_buckets
+from jmstate.utils.dtype import dtype_device
 
 from ._helpers import _data, _model
 

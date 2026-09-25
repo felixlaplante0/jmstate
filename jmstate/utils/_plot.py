@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
-from numpy import atleast_1d
 from sklearn.utils._param_validation import (  # type: ignore
     validate_parameter_constraints,
     validate_params,
@@ -14,6 +13,22 @@ from sklearn.utils._param_validation import (  # type: ignore
 
 if TYPE_CHECKING:
     from ..model._base import MultiStateJointModel
+
+
+def _check_model(model: MultiStateJointModel, caller_name: str) -> None:
+    """Checks that the model is a multistate joint model.
+
+    Args:
+        model (MultiStateJointModel): The model to check.
+        caller_name (str): The calling function name used in error messages.
+    """
+    from ..model._base import MultiStateJointModel  # noqa: PLC0415
+
+    validate_parameter_constraints(
+        {"model": [MultiStateJointModel]},
+        {"model": model},
+        caller_name=caller_name,
+    )
 
 
 @validate_params(
@@ -47,13 +62,7 @@ def plot_params_history(
         tuple[plt.Figure, np.ndarray]: A tuple containing the matplotlib `Figure` object
         and a flattened array of `Axes` objects corresponding to the subplots.
     """
-    from ..model._base import MultiStateJointModel  # noqa: PLC0415
-
-    validate_parameter_constraints(
-        {"model": [MultiStateJointModel]},
-        {"model": model},
-        caller_name="plot_params_history",
-    )
+    _check_model(model, "plot_params_history")
 
     if len(model.params_history_) <= 1:
         raise ValueError("More than one recorded parameter is required to plot")
@@ -66,7 +75,7 @@ def plot_params_history(
 
     # Create subplots
     fig, axes = plt.subplots(nrows, ncols, figsize=figsize)  # type: ignore
-    axes = atleast_1d(axes).ravel()
+    axes = np.atleast_1d(axes).ravel()
 
     Y = torch.stack([h.detach().float().cpu() for h in model.params_history_])
     i = 0
@@ -116,13 +125,7 @@ def plot_mcmc_diagnostics(
         tuple[plt.Figure, np.ndarray]: A tuple containing the matplotlib `Figure` object
         and a flattened array of `Axes` objects corresponding to the subplots.
     """
-    from ..model._base import MultiStateJointModel  # noqa: PLC0415
-
-    validate_parameter_constraints(
-        {"model": [MultiStateJointModel]},
-        {"model": model},
-        caller_name="plot_mcmc_diagnostics",
-    )
+    _check_model(model, "plot_mcmc_diagnostics")
 
     if model.sampler is None:
         raise ValueError("Model sampler is None")
@@ -132,7 +135,7 @@ def plot_mcmc_diagnostics(
 
     # Create subplots
     fig, axes = plt.subplots(1, 2, figsize=figsize)  # type: ignore
-    axes = atleast_1d(axes).ravel()
+    axes = np.atleast_1d(axes).ravel()
 
     accept_rates, step_sizes = (
         torch.stack(model.sampler.diagnostics_[name]).detach().float().cpu().tolist()

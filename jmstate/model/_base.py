@@ -16,8 +16,8 @@ from torch.nn.utils import parameters_to_vector
 
 from ..types._data import ModelData, ModelDesign
 from ..types._parameters import ModelParameters
-from ..utils._dtype import dtype_device, model_dtype
 from ..utils._stats import confidence_interval
+from ..utils.dtype import dtype_device, model_dtype
 from ._fit import FitMixin
 from ._predict import PredictMixin
 from ._sampler import MetropolisWithinGibbsSampler
@@ -232,11 +232,12 @@ class MultiStateJointModel(BaseEstimator, FitMixin, PredictMixin):
         self.n_warmup = n_warmup
         self.n_subsample = n_subsample
         self.verbose = verbose
-        self.params_history_ = [parameters_to_vector(self.params.parameters()).detach()]
+        self.params_history_ = [self.params.to_vector()]
         self.fim_ = None
         self.loglik_ = None
         self.aic_ = None
         self.bic_ = None
+        # Reject unsupported parameter dtypes early
         dtype_device(self.params)
 
     def to(self, *args: Any, **kwargs: Any) -> Self:
@@ -388,17 +389,13 @@ class MultiStateJointModel(BaseEstimator, FitMixin, PredictMixin):
         Raises:
             ValueError: If the model has not been fitted.
         """
-        vector = parameters_to_vector(self.params.parameters()).detach()
+        vector = self.params.to_vector()
         stderr = self.stderr
         zvalues = torch.abs(vector / stderr)
         pvalues = 2 * torch.special.ndtr(-zvalues)
         # Batch host transfer: avoids one sync per parameter on device tensors
         rows = torch.stack([vector, stderr, zvalues, pvalues]).float().cpu().T.tolist()
-        names = [
-            f"{name}[{j}]"
-            for name, val in self.params.named_parameters()
-            for j in range(val.numel())
-        ]
+        names = self.params.vector_names()
 
         table = Table()
         table.add_column("Parameter name", justify="left")

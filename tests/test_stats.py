@@ -1,7 +1,6 @@
 """Tests for confidence interval utilities."""
 
 import torch
-from torch.nn.utils import parameters_to_vector
 
 from jmstate.utils import confidence_interval
 
@@ -29,8 +28,8 @@ def test_confidence_interval_level():
 
 def test_conf_int():
     model = _model()
-    model.fim_ = torch.eye(sum(p.numel() for p in model.params.parameters()))
+    model.fim_ = torch.eye(model.params.numel())
     lower, upper = model.conf_int()
-    vector = parameters_to_vector(model.params.parameters())
+    vector = model.params.to_vector()
     torch.testing.assert_close(lower, vector - QUANTILE_95)
     torch.testing.assert_close(upper, vector + QUANTILE_95)

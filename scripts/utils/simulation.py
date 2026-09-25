@@ -10,7 +10,6 @@ by ``tables.py``; the study loop itself runs inline in
 from collections import defaultdict
 from collections.abc import Callable
 from dataclasses import replace
-from pathlib import Path
 from time import perf_counter
 from typing import Any
 from warnings import warn
@@ -21,9 +20,9 @@ from torch.nn.utils import parameters_to_vector
 from tqdm import trange
 
 try:
-    from .utils import resolve_device
+    from .utils import ROOT, resolve_device
 except ImportError:  # run as a script: python scripts/utils/simulation.py
-    from utils import resolve_device
+    from utils import ROOT, resolve_device
 
 from jmstate import MultiStateJointModel
 from jmstate.functions.base_hazards import Exponential
@@ -35,7 +34,6 @@ from jmstate.types import (
     SampleData,
 )
 
-ROOT = Path(__file__).resolve().parent.parent.parent
 RESULTS = ROOT / "results"
 
 N_VALUES = (100, 500, 2000)

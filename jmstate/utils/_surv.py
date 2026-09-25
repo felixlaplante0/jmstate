@@ -8,12 +8,12 @@ import torch
 from sklearn.utils._param_validation import validate_params  # type: ignore
 
 from ..types._defs import BucketData, Trajectory
-from ._dtype import dtype_device, model_dtype
 from ._surv_ext import (
     _build_buckets,
     _build_quad_buckets,
     _build_remaining_buckets,
 )
+from .dtype import dtype_device, model_dtype
 
 if TYPE_CHECKING:
     from ..model._hazard import HazardMixin
@@ -152,12 +152,24 @@ def _bucket_inputs(
     """
     dtype, device = dtype_device(model.params)
     if censoring is None:
-        censoring = c.reshape(-1).to(dtype=torch.float64, device="cpu").tolist()
+        censoring = _host_times(c)
     if len(censoring) != len(trajectories):
         raise ValueError(
             f"Got {len(censoring)} censoring times for {len(trajectories)} trajectories"
         )
     return dtype, device, list(model.design.link_fns.keys()), censoring
+
+
+def _host_times(c: torch.Tensor) -> list[float]:
+    """Converts times to a host list of float64 values.
+
+    Args:
+        c (torch.Tensor): The times.
+
+    Returns:
+        list[float]: The flattened host times.
+    """
+    return c.reshape(-1).to(dtype=torch.float64, device="cpu").tolist()
 
 
 def build_quad_buckets(

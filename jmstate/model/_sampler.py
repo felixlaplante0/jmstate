@@ -6,7 +6,7 @@ import torch
 
 from ..types._data import ModelDataUnchecked
 from ..types._parameters import ModelParameters
-from ..utils._dtype import dtype_device
+from ..utils.dtype import dtype_device
 
 
 class MCMCMixin:
@@ -69,7 +69,6 @@ class MCMCMixin:
                 dtype=dtype,
                 device=device,
             ),
-            self.n_chains,
             self.init_step_size,
             self.adapt_rate,
             self.target_accept_rate,
@@ -80,7 +79,6 @@ class MetropolisWithinGibbsSampler:
     """A robust Metropolis-within-Gibbs sampler with adaptive step size."""
 
     logpdfs_fn: Callable[[torch.Tensor], torch.Tensor]
-    n_chains: int
     adapt_rate: float
     target_accept_rate: float
     b: torch.Tensor
@@ -94,7 +92,6 @@ class MetropolisWithinGibbsSampler:
         self,
         logpdfs_fn: Callable[[torch.Tensor], torch.Tensor],
         init_b: torch.Tensor,
-        n_chains: int,
         init_step_size: float,
         adapt_rate: float,
         target_accept_rate: float,
@@ -103,14 +100,13 @@ class MetropolisWithinGibbsSampler:
 
         Args:
             logpdfs_fn (Callable[[torch.Tensor], torch.Tensor]): The log pdfs function.
-            init_b (torch.Tensor): Starting b for the chain.
-            n_chains (int): The number of parallel chains to spawn.
+            init_b (torch.Tensor): Starting b for the chains, of shape
+                `(n_chains, n, q)`.
             init_step_size (float): Kernel step in Metropolis-within-Gibbs.
             adapt_rate (float): Adaptation rate for the step_size.
             target_accept_rate (float): Mean acceptance target.
         """
         self.logpdfs_fn = logpdfs_fn
-        self.n_chains = n_chains
         self.adapt_rate = adapt_rate
         self.target_accept_rate = target_accept_rate
 

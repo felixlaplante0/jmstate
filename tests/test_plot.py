@@ -4,7 +4,6 @@ import matplotlib
 import matplotlib.pyplot as plt
 import pytest
 import torch
-from torch.nn.utils import parameters_to_vector
 
 from jmstate.utils import plot_mcmc_diagnostics, plot_params_history
 
@@ -47,7 +46,7 @@ def test_plot_errors():
 def test_plot_unused_subplots():
     model = _model()
     del model.params.x_coefs["(1, 2)"]
-    vector = parameters_to_vector(model.params.parameters()).detach()
+    vector = model.params.to_vector()
     model.params_history_ = [vector, vector]
     figure, axes = plot_params_history(model)
     assert len(axes) == 6

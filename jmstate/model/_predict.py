@@ -9,7 +9,7 @@ from sklearn.utils.validation import (  # type: ignore
     check_consistent_length,  # type: ignore
 )
 from torch.distributions import MultivariateNormal
-from torch.nn.utils import parameters_to_vector, vector_to_parameters
+from torch.nn.utils import vector_to_parameters
 from tqdm import trange
 
 from ..types._data import (
@@ -22,6 +22,8 @@ from ..types._data import (
 from ..types._defs import Trajectory
 from ..types._parameters import ModelParameters
 from ..utils._checks import check_finite
+from ..utils._linalg import add_jitter
+from ..utils._surv import build_remaining_buckets
 from ._hazard import HazardMixin
 from ._sampler import MCMCMixin
 
@@ -50,16 +52,40 @@ class PredictMixin(HazardMixin, MCMCMixin):
         Returns:
             torch.Tensor: A tensor of sampled model parameters as vectors.
         """
-        loc = parameters_to_vector(self.params.parameters()).detach()
+        loc = self.params.to_vector()
         fim = cast(torch.Tensor, self.fim_)
         try:
             dist = MultivariateNormal(loc, precision_matrix=fim)
         except ValueError:
             # Fisher information may be singular; add a small relative jitter
-            jitter = 1e-6 * fim.diagonal().mean().clamp(min=1e-6)
-            eye = torch.eye(fim.size(0), dtype=fim.dtype, device=fim.device)
-            dist = MultivariateNormal(loc, precision_matrix=fim + jitter * eye)
+            dist = MultivariateNormal(loc, precision_matrix=add_jitter(fim))
         return dist.sample((sample_size,))
+
+    def _prepare_query(
+        self, data: ModelData, q: torch.Tensor, name: str, *, broadcast: bool
+    ) -> tuple[ModelDataUnchecked, torch.Tensor]:
+        """Validates query times and aligns them with the prepared data.
+
+        Args:
+            data (ModelData): The checked model data.
+            q (torch.Tensor): The query times.
+            name (str): The query name used in error messages.
+            broadcast (bool): Whether to broadcast `q` to the number of individuals
+                instead of checking its length.
+
+        Returns:
+            tuple[ModelDataUnchecked, torch.Tensor]: The prepared data and the
+                aligned query times.
+        """
+        check_finite(q, name)
+        if broadcast:
+            q = torch.broadcast_to(q, (len(data), -1))
+        else:
+            check_consistent_length(q, data)
+
+        # Load and complete data
+        data = prepare_model_data(data, self)
+        return data, q.to(dtype=data.t.dtype, device=data.t.device)
 
     def _posterior_draws(
         self,
@@ -97,10 +123,9 @@ class PredictMixin(HazardMixin, MCMCMixin):
                     "Double Monte Carlo requires summary statistics. "
                     "Call compute_summary() first."
                 )
-            init_params = parameters_to_vector(self.params.parameters()).detach()
+            init_params = self.params.to_vector()
             sampled_params = self._sample_params(n_iter)
-
-        if not double_monte_carlo:
+        else:
             sampler = self._init_sampler(data).run(self.n_warmup)
 
         try:
@@ -167,12 +192,7 @@ class PredictMixin(HazardMixin, MCMCMixin):
             torch.Tensor: Predicted longitudinal outcomes of shape `(n_samples, n, m)`,
                 where predictions are stacked along the first dimension.
         """
-        check_finite(u, "u")
-        check_consistent_length(u, data)
-
-        # Load and complete data
-        data = prepare_model_data(data, self)
-        u = u.to(dtype=data.t.dtype, device=data.t.device)
+        data, u = self._prepare_query(data, u, "u", broadcast=False)
 
         draws = self._posterior_draws(
             data,
@@ -246,12 +266,8 @@ class PredictMixin(HazardMixin, MCMCMixin):
             torch.Tensor: Predicted survival log-probabilities of shape `(n_samples, n,
             m)`, stacked along the first dimension.
         """
-        check_finite(u, "u")
-        u = torch.broadcast_to(u, (len(data), -1))
-
-        # Load and complete data
-        data = prepare_model_data(data, self)
-        u = u.to(dtype=data.t.dtype, device=data.t.device)
+        data, u = self._prepare_query(data, u, "u", broadcast=True)
+        buckets = build_remaining_buckets(self, data.trajectories, u.max(dim=1).values)
 
         draws = self._posterior_draws(
             data,
@@ -260,9 +276,7 @@ class PredictMixin(HazardMixin, MCMCMixin):
             desc="Predicting survival log probabilities",
         )
         surv_logps_pred = [
-            self.compute_surv_logps(
-                SampleDataUnchecked(data.x, data.trajectories, indiv_params, data.c), u
-            )
+            self._surv_logps(buckets, data.x, indiv_params, data.c, u)
             for indiv_params in draws
         ]
         return torch.cat(surv_logps_pred)[:n_samples]
@@ -321,12 +335,7 @@ class PredictMixin(HazardMixin, MCMCMixin):
             organized as a list of lists, with the outer list indexing posterior draws
             and the inner list indexing individuals.
         """
-        check_finite(c, "c")
-        check_consistent_length(c, data)
-
-        # Load and complete data
-        data = prepare_model_data(data, self)
-        c = c.to(dtype=data.c.dtype, device=data.c.device)
+        data, c = self._prepare_query(data, c, "c", broadcast=False)
 
         trajectories_pred: list[list[Trajectory]] = []
         draws = self._posterior_draws(
@@ -340,7 +349,7 @@ class PredictMixin(HazardMixin, MCMCMixin):
                 data.x, data.trajectories, indiv_params, data.c
             )
             trajectories_pred.extend(
-                self.sample_trajectories(sample_data, c, max_length=max_length)
+                self._sample_trajectories(sample_data, c, max_length)
             )
 
         return trajectories_pred[:n_samples]

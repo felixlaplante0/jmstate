@@ -17,8 +17,8 @@ from ..types._data import (
 from ..types._defs import LOG_CLAMP, Trajectory
 from ..types._parameters import ModelParameters
 from ..utils._checks import check_finite
-from ..utils._dtype import dtype_device
-from ..utils._surv import _quad_tensors, build_remaining_buckets
+from ..utils._surv import _host_times, _quad_tensors, build_remaining_buckets
+from ..utils.dtype import dtype_device
 
 
 class HazardMixin:
@@ -231,7 +231,29 @@ class HazardMixin:
         buckets = build_remaining_buckets(
             self, sample_data.trajectories, u.max(dim=1).values
         )
+        return self._surv_logps(buckets, x, indiv_params, t_cond, u)
 
+    def _surv_logps(
+        self,
+        buckets: dict[tuple[Any, Any], tuple[torch.Tensor, ...]],
+        x: torch.Tensor,
+        indiv_params: torch.Tensor,
+        t_cond: torch.Tensor | None,
+        u: torch.Tensor,
+    ) -> torch.Tensor:
+        """Computes log survival probabilities from prebuilt buckets.
+
+        Args:
+            buckets (dict[tuple[Any, Any], tuple[torch.Tensor, ...]]): Remaining
+                buckets built from the trajectories.
+            x (torch.Tensor): The aligned covariates.
+            indiv_params (torch.Tensor): The aligned individual parameters.
+            t_cond (torch.Tensor | None): The aligned conditioning times.
+            u (torch.Tensor): The aligned evaluation times of shape `(n, m)`.
+
+        Returns:
+            torch.Tensor: Computed survival log-probabilities.
+        """
         # Compute the log probabilities summing over transitions
         nlogps = torch.zeros(
             *indiv_params.shape[:-1],
@@ -297,16 +319,19 @@ class HazardMixin:
         """Appends the next simulated transition.
 
         Args:
-            sample_data (SampleData): Sampling data
-            c (torch.Tensor): Sampling censoring time.
+            sample_data (SampleData): Sampling data aligned to the model.
+            c (torch.Tensor): Sampling censoring time aligned to the model.
             censoring (list[float] | None, optional): Host censoring times to
                 reuse. Defaults to None.
 
         Returns:
             bool: True if the sampling is done.
         """
-        x, indiv_params, t_cond = self._align_sample_data(sample_data)
-        c = c.to(dtype=x.dtype, device=x.device)
+        x, indiv_params, t_cond = (
+            sample_data.x,
+            sample_data.indiv_params,
+            sample_data.t_cond,
+        )
 
         # Get buckets from last states
         current_buckets = build_remaining_buckets(
@@ -396,7 +421,22 @@ class HazardMixin:
         """
         check_finite(c, "c")
         check_consistent_length(c, sample_data)
+        return self._sample_trajectories(sample_data, c, max_length)
 
+    def _sample_trajectories(
+        self, sample_data: SampleData, c: torch.Tensor, max_length: int
+    ) -> list[Trajectory] | list[list[Trajectory]]:
+        """Simulates trajectories from already validated inputs.
+
+        Args:
+            sample_data (SampleData): The sampling data.
+            c (torch.Tensor): Column vector of censoring times.
+            max_length (int): Maximum number of transitions sampled.
+
+        Returns:
+            list[Trajectory] | list[list[Trajectory]]: Sampled trajectories, one
+                list per chain for 3D individual parameters.
+        """
         n = len(sample_data)
         leading = sample_data.indiv_params.shape[:-2]
         n_chains = leading[0] if leading else 1
@@ -420,12 +460,14 @@ class HazardMixin:
             sample_data.indiv_params.reshape(n_chains * n, -1),
             None if sample_data.t_cond is None else _rep(sample_data.t_cond),
         )
+        flat.x, flat.indiv_params, flat.t_cond = self._align_sample_data(flat)
         c_flat = _rep(c)
-        censoring = c_flat.reshape(-1).to(dtype=torch.float64, device="cpu").tolist()
+        c_model = c_flat.to(dtype=flat.x.dtype, device=flat.x.device)
+        censoring = _host_times(c_flat)
 
         # Sample future transitions iteratively
         for _ in range(max_length):
-            if self._sample_trajectory_step(flat, c_flat, censoring=censoring):
+            if self._sample_trajectory_step(flat, c_model, censoring=censoring):
                 break
             flat.t_cond = None
 
