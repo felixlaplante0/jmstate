@@ -60,8 +60,8 @@ The repository's BSD license does not apply to `data/pbc2.csv`.
 
 ### Device, precision and compiled buckets
 
-Trajectory bucket construction runs in a compiled C++ extension (built
-automatically at install with a pure-Python fallback otherwise).
+Trajectory bucket construction runs in a compiled C++ extension, built
+automatically at install.
 
 The model parameters own the canonical dtype and device. Data tensors are
 aligned to them automatically, so GPU/XPU and low precision just work:

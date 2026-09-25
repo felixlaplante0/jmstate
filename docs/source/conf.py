@@ -1,8 +1,6 @@
 """Configure the Sphinx documentation builder."""
 
 project = "jmstate"
-release = ""
-version = ""
 copyright = "2026, Félix Laplante"
 author = "Félix Laplante"
 
@@ -16,16 +14,11 @@ extensions = [
 ]
 
 templates_path = ["_templates"]
-exclude_patterns = []
 
 autodoc_member_order = "bysource"
 autodoc_typehints = "description"
-autodoc_typehints_format = "short"
-autodoc_inherit_docstrings = True
-autosummary_generate = True
 add_module_names = False
 napoleon_use_ivar = True
-napoleon_attr_annotations = True
 suppress_warnings = ["docutils", "ref.ref", "ref.term"]
 nb_execution_mode = "off"
 
