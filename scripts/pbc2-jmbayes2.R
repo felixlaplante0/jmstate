@@ -32,15 +32,16 @@ survival_data <- pbc2[!duplicated(pbc2$id), c("id", "years10", "status2", "drug0
 survival_data$age_z <- as.numeric(scale(survival_data$age))
 pbc2$age_z <- survival_data$age_z[match(pbc2$id, survival_data$id)]
 
-prothrombin_mean <- mean(pbc2$prothrombin, na.rm = TRUE)
-prothrombin_sd <- sd(pbc2$prothrombin, na.rm = TRUE)
-pbc2$prothrombin_z <- (pbc2$prothrombin - prothrombin_mean) / prothrombin_sd
+pbc2$prothrombin_z <- as.numeric(scale(pbc2$prothrombin))
 
 subject_ids <- sort(unique(pbc2$id))
 fold_table <- read.csv(file.path(results_dir, "pbc2-cv-folds.csv"))
 fold_table <- fold_table[match(subject_ids, fold_table$id), ]
 fold <- as.integer(fold_table$fold)
 fold_indices <- sort(unique(fold))
+
+elapsed_since <- function(start) proc.time()[["elapsed"]] - start
+write_results <- function(df, name) write.csv(df, file.path(results_dir, name), row.names = FALSE)
 
 grid <- read.csv(file.path(results_dir, "pbc2-prediction-grid.csv"))
 landmarks <- sort(unique(grid$landmark))
@@ -147,24 +148,14 @@ predict_survival <- function(fit, ids, landmark, horizons, prediction_seed) {
 cat("Fitting full-data JMbayes2 Weibull...\n")
 started <- proc.time()[["elapsed"]]
 full_fit <- fit_model(subject_ids, chains = 3L, fit_seed = seed)
-elapsed <- proc.time()[["elapsed"]] - started
-write.csv(
-    parameter_summary(full_fit),
-    file.path(results_dir, "pbc2-jmbayes2-parameters.csv"),
-    row.names = FALSE
-)
+elapsed <- elapsed_since(started)
+write_results(parameter_summary(full_fit), "pbc2-jmbayes2-parameters.csv")
+
 values <- unlist(full_fit$fit_stats)
 values <- values[grepl("\\.(DIC|pD|LPML|WAIC)$", names(values))]
 fit_stats <- data.frame(statistic = names(values), value = as.numeric(values))
-fit_stats <- rbind(
-    fit_stats,
-    data.frame(statistic = "elapsed_seconds", value = elapsed)
-)
-write.csv(
-    fit_stats,
-    file.path(results_dir, "pbc2-jmbayes2-fit-stats.csv"),
-    row.names = FALSE
-)
+fit_stats <- rbind(fit_stats, data.frame(statistic = "elapsed_seconds", value = elapsed))
+write_results(fit_stats, "pbc2-jmbayes2-fit-stats.csv")
 
 prediction_rows <- list()
 timing_rows <- list()
@@ -174,7 +165,7 @@ for (fold_index in fold_indices) {
     test_ids <- subject_ids[fold == fold_index]
     fit_started <- proc.time()[["elapsed"]]
     fit <- fit_model(train_ids, chains = 1L, fit_seed = seed + fold_index)
-    fit_elapsed <- proc.time()[["elapsed"]] - fit_started
+    fit_elapsed <- elapsed_since(fit_started)
     prediction_started <- proc.time()[["elapsed"]]
     for (landmark_index in seq_along(landmarks)) {
         landmark <- landmarks[landmark_index]
@@ -189,21 +180,13 @@ for (fold_index in fold_indices) {
         rows$landmark <- landmark
         prediction_rows[[length(prediction_rows) + 1L]] <- rows
     }
-    prediction_elapsed <- proc.time()[["elapsed"]] - prediction_started
+    prediction_elapsed <- elapsed_since(prediction_started)
     timing_rows[[length(timing_rows) + 1L]] <- data.frame(
         fold = fold_index,
         fit_seconds = fit_elapsed,
         prediction_seconds = prediction_elapsed
     )
 }
-write.csv(
-    do.call(rbind, prediction_rows),
-    file.path(results_dir, "pbc2-jmbayes2-predictions.csv"),
-    row.names = FALSE
-)
-write.csv(
-    do.call(rbind, timing_rows),
-    file.path(results_dir, "pbc2-jmbayes2-timings.csv"),
-    row.names = FALSE
-)
+write_results(do.call(rbind, prediction_rows), "pbc2-jmbayes2-predictions.csv")
+write_results(do.call(rbind, timing_rows), "pbc2-jmbayes2-timings.csv")
 cat("JMbayes2 PBC2 comparison outputs written.\n")
