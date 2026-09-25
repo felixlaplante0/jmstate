@@ -15,8 +15,6 @@ from torch import nn
 
 from ..types._defs import LOG_CLAMP, LOG_TWO_PI, LogBaseHazardFn
 
-_CLOCK_TYPES = [StrOptions({"sojourn", "absolute"})]
-
 
 def _register(module: nn.Module, frozen: bool, **tensors: torch.Tensor) -> None:
     """Registers tensors as buffers if frozen, else as parameters, in order.
@@ -50,7 +48,7 @@ class Neural(LogBaseHazardFn):
     @validate_params(
         {
             "nn": [nn.Module],
-            "clock_type": _CLOCK_TYPES,
+            "clock_type": [StrOptions({"sojourn", "absolute"})],
         },
         prefer_skip_nested_validation=True,
     )
@@ -192,7 +190,7 @@ class Weibull(LogBaseHazardFn):
         {
             "lmda": [Interval(Real, 0, None, closed="neither")],
             "k": [Interval(Real, 0, None, closed="neither")],
-            "clock_type": _CLOCK_TYPES,
+            "clock_type": [StrOptions({"sojourn", "absolute"})],
             "frozen": [bool],
         },
         prefer_skip_nested_validation=True,
@@ -294,7 +292,7 @@ class Gompertz(LogBaseHazardFn):
         {
             "a": [Interval(Real, 0, None, closed="neither")],
             "b": [Interval(Real, None, None, closed="neither")],
-            "clock_type": _CLOCK_TYPES,
+            "clock_type": [StrOptions({"sojourn", "absolute"})],
             "frozen": [bool],
         },
         prefer_skip_nested_validation=True,
@@ -389,7 +387,7 @@ class LogNormal(LogBaseHazardFn):
         {
             "mu": [Interval(Real, None, None, closed="neither")],
             "scale": [Interval(Real, 0, None, closed="neither")],
-            "clock_type": _CLOCK_TYPES,
+            "clock_type": [StrOptions({"sojourn", "absolute"})],
             "frozen": [bool],
         },
         prefer_skip_nested_validation=True,
