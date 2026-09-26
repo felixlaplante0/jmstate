@@ -297,7 +297,7 @@ class ModelParameters(BaseEstimator, nn.Module):
         """
         return parameters_to_vector(self.parameters()).detach()
 
-    def vector_names(self) -> list[str]:
+    def names(self) -> list[str]:
         """Return the name of each entry of :meth:`to_vector`.
 
         Returns:

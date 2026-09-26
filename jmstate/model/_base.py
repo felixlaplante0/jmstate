@@ -395,7 +395,7 @@ class MultiStateJointModel(BaseEstimator, FitMixin, PredictMixin):
         pvalues = 2 * torch.special.ndtr(-zvalues)
         # Batch host transfer: avoids one sync per parameter on device tensors
         rows = torch.stack([vector, stderr, zvalues, pvalues]).float().cpu().T.tolist()
-        names = self.params.vector_names()
+        names = self.params.names()
 
         table = Table()
         table.add_column("Parameter name", justify="left")
