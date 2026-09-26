@@ -74,7 +74,7 @@ def convergence_table(
     )
     coverage_mcse = np.sqrt(coverage * (1.0 - coverage) / np.maximum(totals, 1))
 
-    names = parameters.vector_names()
+    names = parameters.names()
     return pd.DataFrame(
         {
             "n": n,

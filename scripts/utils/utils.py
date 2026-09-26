@@ -31,7 +31,7 @@ METRIC_SPECS = (
     ("brier_ipcw", "IPCW Brier score ↓", "C2"),
 )
 LANDMARK_QUANTILES = (0.25, 0.5, 0.75)
-HORIZON_FRACTIONS = (0.2, 0.3, 0.5)
+N_HORIZONS = 30
 
 
 def resolve_device(preferred: torch.device | str | None = None) -> torch.device:
@@ -176,22 +176,20 @@ def save_fit_diagnostics(fitted: Any, output_dir: Path, prefix: str) -> None:
 def prediction_grid(
     censoring_times: Sequence[float] | np.ndarray,
     landmark_quantiles: Sequence[float] = LANDMARK_QUANTILES,
-    horizon_fractions: Sequence[float] = HORIZON_FRACTIONS,
+    n_horizons: int = N_HORIZONS,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Compute landmark times and prediction horizons.
 
-    Landmarks are quantiles of the censoring times. Each horizon is the
-    landmark plus a fraction of the remaining follow-up up to the maximum
-    censoring time.
+    Landmarks are quantiles of the censoring times. Horizons are a dense,
+    evenly spaced grid after each landmark up to the maximum censoring time.
 
     Args:
         censoring_times (Sequence[float] | np.ndarray): Observed censoring or
             last-follow-up times.
         landmark_quantiles (Sequence[float]): Quantiles used for landmark
             times. Defaults to ``LANDMARK_QUANTILES``.
-        horizon_fractions (Sequence[float]): Fractions of the remaining
-            follow-up used after each landmark. Defaults to
-            ``HORIZON_FRACTIONS``.
+        n_horizons (int): Number of evenly spaced horizons after each
+            landmark. Defaults to ``N_HORIZONS``.
 
     Returns:
         tuple[np.ndarray, np.ndarray]: Landmark vector and landmark-by-horizon
@@ -199,7 +197,7 @@ def prediction_grid(
     """
     censoring = np.asarray(censoring_times, dtype=float)
     landmarks = np.quantile(censoring, landmark_quantiles)
-    fractions = np.asarray(horizon_fractions, dtype=float)
+    fractions = np.linspace(0.0, 1.0, n_horizons + 1)[1:]
     remaining = censoring.max() - landmarks[:, None]
     return landmarks, landmarks[:, None] + fractions * remaining
 
