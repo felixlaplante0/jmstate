@@ -114,8 +114,10 @@ predict_survival <- function(fit, ids, landmark, horizons, prediction_seed) {
     newdata$years10 <- landmark
     newdata$status2 <- 0
     future <- horizons[horizons > landmark]
+    # predict() drops times beyond the largest training follow-up time;
+    # leave those entries missing instead of reporting survival = 1.
     survival <- matrix(
-        1,
+        NA_real_,
         nrow = length(at_risk_ids),
         ncol = length(horizons),
         dimnames = list(at_risk_ids, horizons)
@@ -135,6 +137,14 @@ predict_survival <- function(fit, ids, landmark, horizons, prediction_seed) {
     row_index <- match(prediction$id, at_risk_ids)
     column_index <- match(prediction$years10, horizons)
     survival[cbind(row_index, column_index)] <- 1 - prediction$pred_CIF
+    dropped <- horizons[colSums(is.na(survival)) > 0]
+    if (length(dropped)) {
+        message(sprintf(
+            "No JMbayes2 prediction beyond max training follow-up %.4f at horizon(s): %s",
+            max(fit$model_data$Time_right),
+            paste(sprintf("%.4f", dropped), collapse = ", ")
+        ))
+    }
     rows <- expand.grid(
         id = at_risk_ids,
         horizon = horizons,
