@@ -166,11 +166,8 @@ def save_fit_diagnostics(fitted: Any, output_dir: Path, prefix: str) -> None:
         for axis in figure.axes:
             axis.axvline(convergence, color="gray", linestyle="--")
             axis.get_legend().remove()
-            # Parameter names such as "base_hazards.(0, 1).log_lmda" are too
-            # long for the panel width at the default title size.
             axis.title.set_fontsize(PLOT_STYLE["xtick.labelsize"])
-        # plot_params_history lays out the grid with one legend per panel;
-        # redo the layout once they are removed so the panels use the space.
+
         figure.tight_layout()
         figure.savefig(output_dir / f"{prefix}-optimization.pdf")
         plt.close(figure)
