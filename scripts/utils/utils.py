@@ -34,37 +34,6 @@ LANDMARK_QUANTILES = (0.25, 0.5, 0.75)
 N_HORIZONS = 30
 
 
-def resolve_device(preferred: torch.device | str | None = None) -> torch.device:
-    """Picks a compute device according to availability.
-
-    Priority is GPU (CUDA), then XPU, then TPU via ``torch_xla``, then MPS,
-    falling back to CPU. Pass ``preferred`` to force a specific device
-    (e.g. ``"cpu"`` for reproducibility).
-
-    Args:
-        preferred (torch.device | str | None): Explicit device override.
-            Defaults to None (auto-select).
-
-    Returns:
-        torch.device: The selected device.
-    """
-    if preferred is not None:
-        return torch.device(preferred)
-    if torch.cuda.is_available():
-        return torch.device("cuda")
-    if hasattr(torch, "xpu") and torch.xpu.is_available():  # type: ignore[attr-defined]
-        return torch.device("xpu")
-    try:
-        import torch_xla.core.xla_model as xm  # type: ignore[import-not-found]  # noqa: PLC0415
-
-        return xm.xla_device()
-    except (ImportError, RuntimeError, OSError):
-        pass
-    if torch.backends.mps.is_available():
-        return torch.device("mps")
-    return torch.device("cpu")
-
-
 def write_prediction_grid(
     output_path: Path,
     landmarks: Sequence[float] | np.ndarray,
@@ -340,7 +309,6 @@ def fit_joint_model(
     params: ModelParameters,
     design: ModelDesign,
     data: ModelData,
-    device: torch.device,
 ) -> MultiStateJointModel:
     """Fit a joint model with the Adam settings shared by the notebooks.
 
@@ -348,23 +316,19 @@ def fit_joint_model(
         params (ModelParameters): Initial model parameters.
         design (ModelDesign): Model design.
         data (ModelData): Training data.
-        device (torch.device): Device on which the model is fitted.
 
     Returns:
         MultiStateJointModel: The fitted model.
     """
     optimizer = torch.optim.Adam(params.parameters(), lr=0.05)
-    return (
-        MultiStateJointModel(design, params, optimizer, max_iter=10000, window_size=500)
-        .to(device)
-        .fit(data)
-    )
+    return MultiStateJointModel(
+        design, params, optimizer, max_iter=10000, window_size=500
+    ).fit(data)
 
 
 def condition_on_landmark(
     data: ModelData,
     landmark: float,
-    device: torch.device | None = None,
     **changes: Any,
 ) -> ModelData:
     """Restrict data to what is observable up to a landmark.
@@ -375,8 +339,6 @@ def condition_on_landmark(
     Args:
         data (ModelData): Data to condition.
         landmark (float): Conditioning time.
-        device (torch.device | None, optional): Device of the new censoring
-            times. Defaults to None (CPU).
         **changes (Any): Extra fields replaced on the returned data.
 
     Returns:
@@ -388,9 +350,9 @@ def condition_on_landmark(
         for trajectory in data.trajectories
     ]
     last_times = torch.tensor(
-        [trajectory[-1][0] for trajectory in trajectories_cond], device=device
+        [trajectory[-1][0] for trajectory in trajectories_cond]
     )[:, None]
-    landmark_tensor = torch.as_tensor(landmark, dtype=torch.float32, device=device)
+    landmark_tensor = torch.as_tensor(landmark, dtype=torch.float32)
     y_truncated = data.y.clone()
     y_truncated[data.t > landmark] = torch.nan
     return replace(

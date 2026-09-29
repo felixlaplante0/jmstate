@@ -20,9 +20,9 @@ from torch.nn.utils import parameters_to_vector
 from tqdm import trange
 
 try:
-    from .utils import ROOT, resolve_device
+    from .utils import ROOT
 except ImportError:  # run as a script: python scripts/utils/simulation.py
-    from utils import ROOT, resolve_device
+    from utils import ROOT
 
 from jmstate import MultiStateJointModel
 from jmstate.functions.base_hazards import Exponential
@@ -236,7 +236,6 @@ def get_vector_and_scores(
     parameters_factory: Callable[[], ModelParameters],
     design: ModelDesign,
     data: ModelData,
-    device: torch.device,
 ):
     """Fit one candidate model and return its parameter vector and scores.
 
@@ -244,7 +243,6 @@ def get_vector_and_scores(
         parameters_factory (callable): Factory returning fresh parameters.
         design (ModelDesign): Model design to fit.
         data (ModelData): Training data.
-        device (torch.device): Device used for fitting.
 
     Returns:
         tuple: ``(parameter vector, standard errors, AIC, BIC, fit time,
@@ -256,7 +254,7 @@ def get_vector_and_scores(
     optimizer = torch.optim.Adam(parameters.parameters(), lr=0.05)
     model = MultiStateJointModel(
         design, parameters, optimizer, max_iter=10000, verbose=False
-    ).to(device)
+    )
 
     try:
         start = perf_counter()
@@ -290,7 +288,6 @@ def get_vector_and_scores(
 def run_replications(
     n: int,
     n_reps: int = N_REPS,
-    device: torch.device | str | None = None,
     seed: int = SEED,
 ) -> dict[str, list[dict[str, Any]]]:
     """Fit every candidate model on ``n_reps`` synthetic samples of size ``n``.
@@ -300,13 +297,11 @@ def run_replications(
     Args:
         n (int): Number of individuals per replication.
         n_reps (int): Number of replications. Defaults to ``N_REPS``.
-        device (torch.device | str | None): Target device; auto-selected when None.
         seed (int): Random seed. Defaults to ``SEED``.
 
     Returns:
         dict[str, list[dict[str, Any]]]: One record list per candidate model.
     """
-    device = resolve_device(device)
     torch.manual_seed(seed)
 
     results: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -316,7 +311,7 @@ def run_replications(
 
         for name, (factory, design) in MODELS.items():
             vector, stderr, aic, bic, fit_time, summary_time = get_vector_and_scores(
-                factory, design, data_more if name == "more" else data, device
+                factory, design, data_more if name == "more" else data
             )
             results[name].append(
                 {
