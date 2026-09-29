@@ -146,7 +146,8 @@ def plot_metric_grid(
                     axis.set_title(f"Landmark: {landmark * 10:.1f} years")
                 if row == len(METRIC_SPECS) - 1:
                     axis.set_xlabel("Prediction horizon (years)")
-        axes[0, 0].legend()
+        if len(models) > 1:
+            axes[0, 0].legend()
         figure.tight_layout()
         figure.savefig(output_path)
     return figure
