@@ -129,7 +129,7 @@ def plot_metric_grid(
                     ].sort_values("horizon")
                     x = (subset.horizon - landmark).to_numpy() * 10
                     y = subset[f"mean_{metric}"].to_numpy()
-                    spread = 1.96 * subset[f"sd_{metric}"].fillna(0).to_numpy()
+                    spread = subset[f"sd_{metric}"].fillna(0).to_numpy()
                     axis.plot(
                         x,
                         y,
