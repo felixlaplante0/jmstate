@@ -1,8 +1,4 @@
-"""Result tables for the jmstate simulation study.
-
-The study loop itself runs inline in ``scripts/fitting-test.ipynb`` (with a
-CSV checkpoint after each sample size); this module only builds the tables.
-"""
+"""Result tables for the jmstate simulation study."""
 
 from collections.abc import Sequence
 from typing import Any
