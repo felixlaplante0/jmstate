@@ -1,11 +1,4 @@
-"""Simulation study for the jmstate paper.
-
-Four candidate models are fitted to synthetic longitudinal and multistate data
-of increasing sample size: a correctly specified model, an under-specified one,
-an over-specified one, and a model with a misspecified link. Tables are built
-by ``tables.py``; the study loop itself runs inline in
-``scripts/fitting-test.ipynb`` so partial results can be checkpointed.
-"""
+"""Simulation study helpers for the jmstate paper."""
 
 from collections import defaultdict
 from collections.abc import Callable
