@@ -17,6 +17,7 @@ from jmstate.types import ModelData, ModelDesign, ModelParameters
 from jmstate.utils import plot_mcmc_diagnostics, plot_params_history
 
 ROOT = Path(__file__).resolve().parents[2]
+RESULTS = ROOT / "results"
 PLOT_STYLE = {
     "font.size": 14,
     "axes.titlesize": 16,

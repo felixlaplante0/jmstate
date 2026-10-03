@@ -12,11 +12,6 @@ from torch.distributions import MultivariateNormal
 from torch.nn.utils import parameters_to_vector
 from tqdm import trange
 
-try:
-    from .utils import ROOT
-except ImportError:  # run as a script: python scripts/utils/simulation.py
-    from utils import ROOT
-
 from jmstate import MultiStateJointModel
 from jmstate.functions.base_hazards import Exponential
 from jmstate.types import (
@@ -26,8 +21,6 @@ from jmstate.types import (
     PrecisionParameters,
     SampleData,
 )
-
-RESULTS = ROOT / "results"
 
 N_VALUES = (100, 500, 2000)
 N_REPS = 100

@@ -11,7 +11,7 @@ import torch
 from jmstate.types import ModelParameters
 from jmstate.utils import confidence_interval
 
-from .utils import METRIC_SPECS
+from ._utils import METRIC_SPECS
 
 
 def convergence_table(
